@@ -30,6 +30,7 @@ public final class TownState {
     private static final double CARPENTER_ACTIONS_PER_WORKER_PER_DAY = 15.0D;
     private static final double COURIER_ITEMS_PER_WORKER_PER_DAY = 200.0D;
     private static final double SMITH_TOOLS_PER_WORKER_PER_DAY = 10.0D;
+    private static final long BOOTSTRAP_OUTPUT_PER_WORKER_PER_DAY = 1L;
     private static final long BREAD_WHEAT_COST = 3L;
     private static final long BREAD_LOG_COST_DIVISOR = 4L;
     private static final long PLANKS_PER_LOG = 4L;
@@ -306,7 +307,8 @@ public final class TownState {
         int workers = workers(type);
         for (int i = 0; i < workers; i++) {
             boolean consumed = consumePersonalInput(tool, 1, plan, type);
-            if (type == WorkstationType.FARM || type == WorkstationType.MINE || type == WorkstationType.LUMBER_MILL) {
+            if (type == WorkstationType.FARM || type == WorkstationType.MINE
+                    || type == WorkstationType.LUMBER_MILL || type == WorkstationType.BLACKSMITH) {
                 if (consumed) {
                     plan.tooledWorkers.put(type, plan.tooledWorkers.get(type) + 1);
                 } else {
@@ -369,13 +371,9 @@ public final class TownState {
             case BREAD -> workerRecipe(plan, WorkstationType.BAKER, resource, whole(BAKER_BREAD_PER_WORKER_PER_DAY),
                     input(ResourceType.WHEAT, whole(BAKER_BREAD_PER_WORKER_PER_DAY) * BREAD_WHEAT_COST),
                     inputScaled(ResourceType.LOG, Math.round(whole(BAKER_BREAD_PER_WORKER_PER_DAY) * SCALE / (double) BREAD_LOG_COST_DIVISOR)));
-            case OAK_PLANKS -> workerRecipe(plan, WorkstationType.CARPENTER, resource, whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY * PLANKS_PER_LOG),
-                    input(ResourceType.LOG, whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY)));
-            case STICK -> workerRecipe(plan, WorkstationType.CARPENTER, resource, whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY * STICKS_PER_ACTION),
-                    input(ResourceType.OAK_PLANKS, whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY * STICK_PLANK_COST)));
-            case PICKAXE, AXE, HOE, HAMMER -> workerRecipe(plan, WorkstationType.BLACKSMITH, resource, whole(SMITH_TOOLS_PER_WORKER_PER_DAY),
-                    input(ResourceType.IRON, whole(SMITH_TOOLS_PER_WORKER_PER_DAY * TOOL_IRON_COST)),
-                    input(ResourceType.STICK, whole(SMITH_TOOLS_PER_WORKER_PER_DAY * TOOL_STICK_COST)));
+            case OAK_PLANKS -> carpenterPlankRecipe(resource, plan);
+            case STICK -> carpenterStickRecipe(resource, plan);
+            case PICKAXE, AXE, HOE, HAMMER -> blacksmithRecipe(resource, plan);
         };
     }
 
@@ -411,6 +409,51 @@ public final class TownState {
         return new ProductionRecipe(workstation, (long) outputAmount * SCALE, List.of(inputs));
     }
 
+    private ProductionRecipe carpenterPlankRecipe(ResourceType resource, DailyWorkPlan plan) {
+        RecipeInput fullInput = input(ResourceType.LOG, whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY));
+        if (hasStoredInputs(fullInput)) {
+            return workerRecipe(plan, WorkstationType.CARPENTER, resource,
+                    whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY * PLANKS_PER_LOG), fullInput);
+        }
+        return workerRecipe(plan, WorkstationType.CARPENTER, resource, (int) BOOTSTRAP_OUTPUT_PER_WORKER_PER_DAY,
+                inputScaled(ResourceType.LOG, SCALE / PLANKS_PER_LOG));
+    }
+
+    private ProductionRecipe carpenterStickRecipe(ResourceType resource, DailyWorkPlan plan) {
+        RecipeInput fullInput = input(ResourceType.OAK_PLANKS, whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY * STICK_PLANK_COST));
+        if (hasStoredInputs(fullInput)) {
+            return workerRecipe(plan, WorkstationType.CARPENTER, resource,
+                    whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY * STICKS_PER_ACTION), fullInput);
+        }
+        return workerRecipe(plan, WorkstationType.CARPENTER, resource, (int) BOOTSTRAP_OUTPUT_PER_WORKER_PER_DAY,
+                inputScaled(ResourceType.OAK_PLANKS, SCALE * STICK_PLANK_COST / STICKS_PER_ACTION));
+    }
+
+    private ProductionRecipe blacksmithRecipe(ResourceType resource, DailyWorkPlan plan) {
+        if (plan.availableWorkers.get(WorkstationType.BLACKSMITH) <= 0) {
+            return null;
+        }
+        RecipeInput fullIron = input(ResourceType.IRON, whole(SMITH_TOOLS_PER_WORKER_PER_DAY * TOOL_IRON_COST));
+        RecipeInput fullSticks = input(ResourceType.STICK, whole(SMITH_TOOLS_PER_WORKER_PER_DAY * TOOL_STICK_COST));
+        if (plan.tooledWorkers.get(WorkstationType.BLACKSMITH) > 0 && hasStoredInputs(fullIron, fullSticks)) {
+            plan.tooledWorkers.put(WorkstationType.BLACKSMITH, plan.tooledWorkers.get(WorkstationType.BLACKSMITH) - 1);
+            return workerRecipe(plan, WorkstationType.BLACKSMITH, resource, whole(SMITH_TOOLS_PER_WORKER_PER_DAY),
+                    fullIron, fullSticks);
+        }
+
+        RecipeInput bootstrapIron = input(ResourceType.IRON, BOOTSTRAP_OUTPUT_PER_WORKER_PER_DAY * TOOL_IRON_COST);
+        RecipeInput bootstrapSticks = input(ResourceType.STICK, BOOTSTRAP_OUTPUT_PER_WORKER_PER_DAY * TOOL_STICK_COST);
+        if (hasStoredInputs(bootstrapIron, bootstrapSticks)) {
+            if (plan.bareHandWorkers.get(WorkstationType.BLACKSMITH) > 0) {
+                plan.bareHandWorkers.put(WorkstationType.BLACKSMITH, plan.bareHandWorkers.get(WorkstationType.BLACKSMITH) - 1);
+            } else if (plan.tooledWorkers.get(WorkstationType.BLACKSMITH) > 0) {
+                plan.tooledWorkers.put(WorkstationType.BLACKSMITH, plan.tooledWorkers.get(WorkstationType.BLACKSMITH) - 1);
+            }
+        }
+        return workerRecipe(plan, WorkstationType.BLACKSMITH, resource, (int) BOOTSTRAP_OUTPUT_PER_WORKER_PER_DAY,
+                bootstrapIron, bootstrapSticks);
+    }
+
     private RecipeInput input(ResourceType resource, long amount) {
         return new RecipeInput(resource, amount * SCALE);
     }
@@ -423,7 +466,15 @@ public final class TownState {
         if (recipe == null) {
             return false;
         }
-        for (RecipeInput input : recipe.inputs()) {
+        return hasStoredInputs(recipe.inputs());
+    }
+
+    private boolean hasStoredInputs(RecipeInput... inputs) {
+        return hasStoredInputs(List.of(inputs));
+    }
+
+    private boolean hasStoredInputs(List<RecipeInput> inputs) {
+        for (RecipeInput input : inputs) {
             if (raw(input.resource()) < input.amount()) {
                 return false;
             }
