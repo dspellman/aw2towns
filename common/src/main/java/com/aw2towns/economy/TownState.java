@@ -282,6 +282,7 @@ public final class TownState {
             }
             productionPerDay.put(resource, toWhole(produced));
         }
+        adjustStockpileGoals(plan);
         updateWorkstationProductivity(plan);
     }
 
@@ -299,10 +300,7 @@ public final class TownState {
     }
 
     private void assignProductionFor(ResourceType resource, DailyWorkPlan plan) {
-        if (raw(resource) + plan.produced.get(resource) >= (long) stockpileGoal(resource) * SCALE) {
-            return;
-        }
-        while (true) {
+        while (raw(resource) + plan.produced.get(resource) < (long) stockpileGoal(resource) * SCALE) {
             ProductionRecipe recipe = recipeFor(resource, plan);
             if (recipe == null) {
                 return;
@@ -358,12 +356,12 @@ public final class TownState {
         if (worker == null) {
             return null;
         }
-        ToolPlan toolPlan = planToolUse(worker, workstation, tool, outputCapacity, fallbackCapacity);
+        ToolPlan toolPlan = planToolUse(worker, workstation, tool, outputCapacity, fallbackCapacity, plan);
         if (tool != null && toolPlan.outputCapacity() < outputCapacity) {
             addShortage(workstation, tool);
-            incrementGoal(tool);
+            recordDeficit(plan, tool);
         }
-        int outputAmount = Math.min(toolPlan.outputCapacity(), inputLimitedOutput(workstation, outputCapacity, inputsPerItem));
+        int outputAmount = Math.min(toolPlan.outputCapacity(), inputLimitedOutput(workstation, outputCapacity, plan, inputsPerItem));
         if (outputAmount <= 0) {
             return null;
         }
@@ -424,7 +422,7 @@ public final class TownState {
     }
 
     private ToolPlan planToolUse(TownWorker worker, WorkstationType workstation, ResourceType tool,
-                                 int outputCapacity, int fallbackCapacity) {
+                                 int outputCapacity, int fallbackCapacity, DailyWorkPlan plan) {
         if (tool == null) {
             return new ToolPlan(null, outputCapacity);
         }
@@ -432,14 +430,15 @@ public final class TownState {
         int storedTools = storedWhole(tool);
         if (currentDurability <= 0 && storedTools <= 0) {
             addShortage(workstation, tool);
-            incrementGoalIfEmpty(tool);
+            recordDeficitIfEmpty(plan, tool);
             return new ToolPlan(null, fallbackCapacity);
         }
         long availableDurability = (long) currentDurability + (long) storedTools * TownWorker.DEFAULT_TOOL_DURABILITY;
         return new ToolPlan(tool, (int) Math.min(outputCapacity, availableDurability));
     }
 
-    private int inputLimitedOutput(WorkstationType workstation, int targetOutput, RecipeInput... inputsPerItem) {
+    private int inputLimitedOutput(WorkstationType workstation, int targetOutput, DailyWorkPlan plan,
+                                   RecipeInput... inputsPerItem) {
         int limit = Integer.MAX_VALUE;
         for (RecipeInput input : inputsPerItem) {
             if (input.amount() <= 0) {
@@ -448,12 +447,12 @@ public final class TownState {
             long stored = raw(input.resource());
             if (stored == 0L) {
                 addShortage(workstation, input.resource());
-                incrementGoalIfEmpty(input.resource());
+                recordDeficitIfEmpty(plan, input.resource());
             }
             int inputLimit = (int) (stored / input.amount());
             if (inputLimit < targetOutput) {
                 addShortage(workstation, input.resource());
-                incrementGoal(input.resource());
+                recordDeficit(plan, input.resource());
             }
             limit = Math.min(limit, inputLimit);
         }
@@ -473,7 +472,7 @@ public final class TownState {
                 long consumed = consumeAvailable(tool, SCALE, plan);
                 if (consumed < SCALE) {
                     addShortage(recipe.workstation(), tool);
-                    incrementGoalIfEmpty(tool);
+                    recordDeficitIfEmpty(plan, tool);
                     worker.setToolDurability(tool, 0);
                     return;
                 }
@@ -506,9 +505,10 @@ public final class TownState {
         long consumed = consumeAvailable(ResourceType.BREAD, SCALE, plan);
         if (consumed < SCALE) {
             addShortage(workstation, ResourceType.BREAD);
+            recordDeficit(plan, ResourceType.BREAD);
         }
         if (raw(ResourceType.BREAD) == 0L) {
-            incrementGoalIfEmpty(ResourceType.BREAD);
+            recordDeficitIfEmpty(plan, ResourceType.BREAD);
         }
     }
 
@@ -529,9 +529,10 @@ public final class TownState {
             long consumed = consumeAvailable(input.resource(), input.amount(), plan);
             if (consumed < input.amount()) {
                 addShortage(recipe.workstation(), input.resource());
+                recordDeficit(plan, input.resource());
             }
             if (raw(input.resource()) == 0L) {
-                incrementGoalIfEmpty(input.resource());
+                recordDeficitIfEmpty(plan, input.resource());
             }
         }
     }
@@ -546,15 +547,28 @@ public final class TownState {
         return consumed;
     }
 
-    private void incrementGoalIfEmpty(ResourceType resource) {
+    private void recordDeficitIfEmpty(DailyWorkPlan plan, ResourceType resource) {
         if (raw(resource) > 0L) {
             return;
         }
-        incrementGoal(resource);
+        recordDeficit(plan, resource);
     }
 
-    private void incrementGoal(ResourceType resource) {
-        stockpileGoals.put(resource, stockpileGoal(resource) + 1);
+    private void recordDeficit(DailyWorkPlan plan, ResourceType resource) {
+        plan.deficitResources.put(resource, true);
+    }
+
+    private void adjustStockpileGoals(DailyWorkPlan plan) {
+        for (ResourceType resource : ResourceType.values()) {
+            if (plan.deficitResources.get(resource)) {
+                stockpileGoals.put(resource, stockpileGoal(resource) + 2);
+            }
+        }
+        for (ResourceType resource : ResourceType.values()) {
+            if (resource(resource) > stockpileGoal(resource)) {
+                stockpileGoals.put(resource, Math.max(1, stockpileGoal(resource) - 1));
+            }
+        }
     }
 
     private void addShortage(WorkstationType type, ResourceType resource) {
@@ -1243,10 +1257,14 @@ public final class TownState {
     private final class DailyWorkPlan {
         private final EnumMap<ResourceType, Long> produced = emptyResourceMap();
         private final EnumMap<ResourceType, Long> consumed = emptyResourceMap();
+        private final EnumMap<ResourceType, Boolean> deficitResources = new EnumMap<>(ResourceType.class);
         private final EnumMap<WorkstationType, Integer> availableWorkers = new EnumMap<>(WorkstationType.class);
         private final EnumMap<WorkstationType, Integer> assignedWorkers = new EnumMap<>(WorkstationType.class);
 
         private DailyWorkPlan() {
+            for (ResourceType resource : ResourceType.values()) {
+                deficitResources.put(resource, false);
+            }
             for (WorkstationType type : WorkstationType.values()) {
                 availableWorkers.put(type, workstation(type).workers());
                 assignedWorkers.put(type, 0);
