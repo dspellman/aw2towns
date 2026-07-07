@@ -356,7 +356,16 @@ public final class TownState {
             return null;
         }
         ToolPlan toolPlan = planToolUse(worker, workstation, tool, outputCapacity, fallbackCapacity);
-        int outputAmount = Math.min(toolPlan.outputCapacity(), inputLimitedOutput(workstation, inputsPerItem));
+        int desiredOutput = desiredOutputFor(output, plan, outputCapacity);
+        if (desiredOutput <= 0) {
+            return null;
+        }
+        if (tool != null && toolPlan.outputCapacity() < desiredOutput) {
+            addShortage(workstation, tool);
+            incrementGoal(tool);
+        }
+        desiredOutput = Math.min(desiredOutput, toolPlan.outputCapacity());
+        int outputAmount = Math.min(desiredOutput, inputLimitedOutput(workstation, desiredOutput, inputsPerItem));
         if (outputAmount <= 0) {
             return null;
         }
@@ -368,6 +377,15 @@ public final class TownState {
             }
         }
         return new ProductionRecipe(worker, workstation, (long) outputAmount * SCALE, inputs, toolPlan.tool(), outputAmount);
+    }
+
+    private int desiredOutputFor(ResourceType output, DailyWorkPlan plan, int outputCapacity) {
+        long remaining = (long) stockpileGoal(output) * SCALE - raw(output) - plan.produced.get(output);
+        if (remaining <= 0L) {
+            return 0;
+        }
+        long neededItems = (remaining + SCALE - 1L) / SCALE;
+        return (int) Math.min(outputCapacity, Math.max(1L, neededItems));
     }
 
     private ProductionRecipe carpenterPlankRecipe(ResourceType resource, DailyWorkPlan plan) {
@@ -432,7 +450,7 @@ public final class TownState {
         return new ToolPlan(tool, (int) Math.min(outputCapacity, availableDurability));
     }
 
-    private int inputLimitedOutput(WorkstationType workstation, RecipeInput... inputsPerItem) {
+    private int inputLimitedOutput(WorkstationType workstation, int desiredOutput, RecipeInput... inputsPerItem) {
         int limit = Integer.MAX_VALUE;
         for (RecipeInput input : inputsPerItem) {
             if (input.amount() <= 0) {
@@ -443,7 +461,12 @@ public final class TownState {
                 addShortage(workstation, input.resource());
                 incrementGoalIfEmpty(input.resource());
             }
-            limit = Math.min(limit, (int) (stored / input.amount()));
+            int inputLimit = (int) (stored / input.amount());
+            if (inputLimit < desiredOutput) {
+                addShortage(workstation, input.resource());
+                incrementGoal(input.resource());
+            }
+            limit = Math.min(limit, inputLimit);
         }
         return limit == Integer.MAX_VALUE ? Integer.MAX_VALUE : Math.max(0, limit);
     }
@@ -538,6 +561,10 @@ public final class TownState {
         if (raw(resource) > 0L) {
             return;
         }
+        incrementGoal(resource);
+    }
+
+    private void incrementGoal(ResourceType resource) {
         stockpileGoals.put(resource, stockpileGoal(resource) + 1);
     }
 
