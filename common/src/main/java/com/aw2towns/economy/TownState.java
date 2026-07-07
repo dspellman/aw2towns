@@ -274,6 +274,7 @@ public final class TownState {
         for (ResourceType resource : priorities) {
             assignProductionFor(resource, plan);
         }
+        consumeIdleWorkerFood(plan);
         for (ResourceType resource : ResourceType.values()) {
             long produced = plan.produced.get(resource);
             if (produced > 0) {
@@ -322,7 +323,7 @@ public final class TownState {
                     inputScaled(ResourceType.LOG, Math.round(SCALE / (double) BREAD_LOG_COST_DIVISOR)));
             case OAK_PLANKS -> carpenterPlankRecipe(resource, plan);
             case STICK -> carpenterStickRecipe(resource, plan);
-            case PICKAXE, AXE, HOE, HAMMER -> blacksmithRecipe(resource, plan);
+            case PICKAXE, AXE, HOE, SAW, HAMMER -> blacksmithRecipe(resource, plan);
         };
     }
 
@@ -395,7 +396,7 @@ public final class TownState {
             case FARM -> ResourceType.HOE;
             case MINE -> ResourceType.PICKAXE;
             case LUMBER_MILL -> ResourceType.AXE;
-            case CARPENTER -> ResourceType.HAMMER;
+            case CARPENTER -> ResourceType.SAW;
             case BLACKSMITH -> ResourceType.HAMMER;
             default -> null;
         };
@@ -474,9 +475,25 @@ public final class TownState {
     }
 
     private void consumeWorkerFood(ProductionRecipe recipe, DailyWorkPlan plan) {
+        consumeWorkerFood(plan, recipe.workstation());
+    }
+
+    private void consumeIdleWorkerFood(DailyWorkPlan plan) {
+        for (WorkstationType type : WorkstationType.values()) {
+            int idleWorkers = Math.max(0, workers(type) - plan.assignedWorkers.get(type));
+            for (int i = 0; i < idleWorkers; i++) {
+                consumeWorkerFood(plan, type);
+            }
+        }
+        for (int i = 0; i < unassignedWorkers(); i++) {
+            consumeWorkerFood(plan, null);
+        }
+    }
+
+    private void consumeWorkerFood(DailyWorkPlan plan, WorkstationType workstation) {
         long consumed = consumeAvailable(ResourceType.BREAD, SCALE, plan);
         if (consumed < SCALE) {
-            addShortage(recipe.workstation(), ResourceType.BREAD);
+            addShortage(workstation, ResourceType.BREAD);
         }
         if (raw(ResourceType.BREAD) == 0L) {
             incrementGoalIfEmpty(ResourceType.BREAD);
@@ -589,6 +606,7 @@ public final class TownState {
         addDemand(demands, WorkstationType.BAKER, ResourceType.BREAD, bread, null, 0L);
         addDemand(demands, WorkstationType.MINE, ResourceType.BREAD, bread, ResourceType.PICKAXE, tool);
         addDemand(demands, WorkstationType.LUMBER_MILL, ResourceType.BREAD, bread, ResourceType.AXE, tool);
+        addDemand(demands, WorkstationType.CARPENTER, ResourceType.BREAD, bread, ResourceType.SAW, tool);
         addDemand(demands, WorkstationType.COURIER, ResourceType.BREAD, bread, null, 0L);
         addDemand(demands, WorkstationType.BLACKSMITH, ResourceType.BREAD, bread, ResourceType.HAMMER, tool);
         return demands;
@@ -759,7 +777,13 @@ public final class TownState {
     }
 
     private ResourceType[] toolResources() {
-        return new ResourceType[] {ResourceType.PICKAXE, ResourceType.AXE, ResourceType.HOE, ResourceType.HAMMER};
+        return new ResourceType[] {
+                ResourceType.PICKAXE,
+                ResourceType.AXE,
+                ResourceType.HOE,
+                ResourceType.SAW,
+                ResourceType.HAMMER
+        };
     }
 
     private ResourceType protectedHammerTarget(long availableHammers) {
@@ -1167,6 +1191,7 @@ public final class TownState {
             town.resourceRaw(ResourceType.PICKAXE, tools);
             town.resourceRaw(ResourceType.AXE, tools);
             town.resourceRaw(ResourceType.HOE, tools);
+            town.resourceRaw(ResourceType.SAW, tools);
             town.resourceRaw(ResourceType.HAMMER, tools);
         }
 

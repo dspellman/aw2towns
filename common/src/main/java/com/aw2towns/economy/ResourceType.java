@@ -13,6 +13,7 @@ public enum ResourceType {
     PICKAXE("pickaxe"),
     AXE("axe"),
     HOE("hoe"),
+    SAW("saw"),
     HAMMER("hammer");
 
     private final String id;
