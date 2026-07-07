@@ -1,0 +1,33 @@
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "All Rights Reserved"
+
+[[mods]]
+modId = "aw2towns"
+version = "${version}"
+displayName = "AW2 Town Prototype"
+authors = "David"
+description = '''
+Prototype abstract town economy inspired by Ancient Warfare 2.
+'''
+
+[[dependencies.aw2towns]]
+modId = "neoforge"
+type = "required"
+versionRange = "${dep_neoforge}"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.aw2towns]]
+modId = "minecraft"
+type = "required"
+versionRange = "${dep_minecraft}"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.aw2towns]]
+modId = "architectury"
+type = "required"
+versionRange = "${dep_architectury}"
+ordering = "AFTER"
+side = "BOTH"

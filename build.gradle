@@ -1,0 +1,48 @@
+plugins {
+    id "dev.architectury.loom" version "1.7.435" apply false
+    id "architectury-plugin" version "3.4.164"
+    id "com.gradleup.shadow" version "8.3.6" apply false
+}
+
+architectury {
+    minecraft = project.minecraft_version
+    compileOnly()
+}
+
+allprojects {
+    group = project.maven_group
+    version = project.mod_version
+}
+
+subprojects {
+    apply plugin: "dev.architectury.loom"
+    apply plugin: "architectury-plugin"
+
+    base {
+        archivesName = "$project.archives_name-$project.name"
+    }
+
+    repositories {
+        mavenCentral()
+        maven { url "https://maven.fabricmc.net/" }
+        maven { url "https://maven.architectury.dev/" }
+        maven { url "https://maven.neoforged.net/releases" }
+    }
+
+    dependencies {
+        minecraft "net.minecraft:minecraft:$project.minecraft_version"
+        mappings loom.layered {
+            it.mappings("net.fabricmc:yarn:$project.yarn_mappings:v2")
+            it.mappings("dev.architectury:yarn-mappings-patch-neoforge:$project.yarn_mappings_patch_neoforge_version")
+        }
+    }
+
+    java {
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
+    }
+
+    tasks.withType(JavaCompile).configureEach {
+        it.options.release = 21
+    }
+}

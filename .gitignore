@@ -1,0 +1,29 @@
+# Gradle
+.gradle/
+build/
+**/build/
+out/
+
+# Minecraft dev runtime output
+run/
+**/run/
+logs/
+crash-reports/
+debug.log
+
+# IDE/editor local state
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local secrets
+.env
+.env.*
+!.env.example

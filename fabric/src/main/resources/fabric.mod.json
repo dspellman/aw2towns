@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "aw2towns",
+  "version": "${version}",
+  "name": "AW2 Town Prototype",
+  "description": "Prototype abstract town economy inspired by Ancient Warfare 2.",
+  "authors": [
+    "David"
+  ],
+  "license": "All Rights Reserved",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "com.aw2towns.fabric.AW2TownsFabric"
+    ],
+    "client": [
+      "com.aw2towns.fabric.AW2TownsFabricClient"
+    ]
+  },
+  "depends": {
+    "minecraft": "${dep_minecraft}",
+    "fabricloader": ">=${fabric_loader_version}",
+    "fabric-api": "${dep_fabric_api}",
+    "architectury": "${dep_architectury}"
+  }
+}

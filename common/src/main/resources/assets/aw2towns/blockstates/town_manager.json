@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "aw2towns:block/town_manager"
+    }
+  }
+}
