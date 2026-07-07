@@ -54,7 +54,9 @@ public class TownManagerScreenHandler extends ScreenHandler {
 
     private static final int IDX_TOTAL_WORKERS = 0;
     private static final int IDX_UNASSIGNED = 1;
-    private static final int IDX_WORKERS = 2;
+    private static final int IDX_TRANSPORT_CAPACITY = 2;
+    private static final int IDX_TRANSPORT_REMAINING = 3;
+    private static final int IDX_WORKERS = 4;
     private static final int IDX_PRIORITIES = IDX_WORKERS + WORKSTATION_COUNT;
     private static final int IDX_PRODUCTIVITY = IDX_PRIORITIES + WORKSTATION_COUNT;
     private static final int IDX_SHORTAGES = IDX_PRODUCTIVITY + WORKSTATION_COUNT;
@@ -124,6 +126,14 @@ public class TownManagerScreenHandler extends ScreenHandler {
         return properties.get(IDX_UNASSIGNED);
     }
 
+    public int transportCapacity() {
+        return properties.get(IDX_TRANSPORT_CAPACITY);
+    }
+
+    public int transportRemaining() {
+        return properties.get(IDX_TRANSPORT_REMAINING);
+    }
+
     public int workers(WorkstationType type) {
         return properties.get(IDX_WORKERS + type.ordinal());
     }
@@ -178,6 +188,12 @@ public class TownManagerScreenHandler extends ScreenHandler {
                 }
                 if (index == IDX_UNASSIGNED) {
                     return town.unassignedWorkers();
+                }
+                if (index == IDX_TRANSPORT_CAPACITY) {
+                    return town.transportCapacityPerStep();
+                }
+                if (index == IDX_TRANSPORT_REMAINING) {
+                    return town.transportRemaining();
                 }
                 if (index >= IDX_WORKERS && index < IDX_WORKERS + WORKSTATION_COUNT) {
                     return workstation(town, index - IDX_WORKERS).workers();

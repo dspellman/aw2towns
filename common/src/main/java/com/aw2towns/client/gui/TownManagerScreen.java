@@ -127,7 +127,9 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
         context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.prototype_town"),
                 10, 52, TEXT, false);
         context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.workers",
-                handler.totalWorkers(), handler.unassignedWorkers()), 126, 52, MUTED, false);
+                handler.totalWorkers(), handler.unassignedWorkers()), 126, 48, MUTED, false);
+        context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.transport",
+                handler.transportRemaining(), handler.transportCapacity()), 126, 58, MUTED, false);
 
         switch (currentTab) {
             case OVERVIEW -> drawOverview(context);

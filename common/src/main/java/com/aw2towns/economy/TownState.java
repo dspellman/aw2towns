@@ -12,7 +12,7 @@ import net.minecraft.nbt.NbtList;
 public final class TownState {
 
     public static final int SCALE = 1000;
-    public static final int STEP_TICKS = 100;
+    public static final int PRODUCTION_STEPS_PER_DAY = 5;
     public static final int STATUS_BLOCKED_MAX = 30;
     public static final int STATUS_PARTIAL_MAX = 89;
     public static final int LARGE_STOCKPILE_DAYS = 2;
@@ -40,6 +40,8 @@ public final class TownState {
     private String name;
     private int totalWorkers;
     private long lastSimulatedGameTime;
+    private long lastTransportCapacity;
+    private long lastTransportRemaining;
     private final EnumMap<ResourceType, Long> storage = new EnumMap<>(ResourceType.class);
     private final EnumMap<ResourceType, Integer> productionPerDay = new EnumMap<>(ResourceType.class);
     private final EnumMap<ResourceType, Integer> consumptionPerDay = new EnumMap<>(ResourceType.class);
@@ -97,6 +99,18 @@ public final class TownState {
         return Math.max(0, totalWorkers - assignedWorkers());
     }
 
+    public int transportCapacityPerStep() {
+        return whole(COURIER_ITEMS_PER_WORKER_PER_DAY * workstation(WorkstationType.COURIER).workers()
+                / PRODUCTION_STEPS_PER_DAY);
+    }
+
+    public int transportRemaining() {
+        if (lastTransportCapacity <= 0) {
+            return transportCapacityPerStep();
+        }
+        return toWhole(lastTransportRemaining);
+    }
+
     public int resource(ResourceType resource) {
         return toWhole(storage.get(resource));
     }
@@ -150,13 +164,14 @@ public final class TownState {
             lastSimulatedGameTime = gameTime;
             return;
         }
+        long stepTicks = cycle.stepTicks();
         int steps = 0;
-        while (gameTime - lastSimulatedGameTime >= STEP_TICKS && steps < 24) {
+        while (gameTime - lastSimulatedGameTime >= stepTicks && steps < 24) {
             simulateStep(lastSimulatedGameTime, cycle);
-            lastSimulatedGameTime += STEP_TICKS;
+            lastSimulatedGameTime += stepTicks;
             steps++;
         }
-        if (gameTime - lastSimulatedGameTime > STEP_TICKS * 24L) {
+        if (gameTime - lastSimulatedGameTime > stepTicks * 24L) {
             lastSimulatedGameTime = gameTime;
         }
     }
@@ -165,21 +180,22 @@ public final class TownState {
         refreshDailyRates();
         autoBalanceWorkers();
         refreshDailyRates();
+        long courierCapacity = courierTransportBy(workstation(WorkstationType.COURIER).workers(), cycle);
+        lastTransportCapacity = courierCapacity;
+        lastTransportRemaining = courierCapacity;
         if (!cycle.isDaytime(gameTime)) {
             return;
         }
         resetWorkstations();
-        TransportLoad transport = new TransportLoad(courierTransportBy(workstation(WorkstationType.COURIER).workers(), cycle));
+        TransportLoad transport = new TransportLoad(courierCapacity);
 
-        EnumMap<ResourceType, Long> produced = emptyResourceMap();
-        produceFor(WorkstationType.FARM, workstation(WorkstationType.FARM).workers(), 1.0D, produced, cycle);
-        produceFor(WorkstationType.MINE, workstation(WorkstationType.MINE).workers(), 1.0D, produced, cycle);
-        produceFor(WorkstationType.LUMBER_MILL, workstation(WorkstationType.LUMBER_MILL).workers(), 1.0D, produced, cycle);
-        addProducedToStorage(produced, transport);
+        produceBasicWorkers(WorkstationType.FARM, ResourceType.WHEAT, cycle.perStep(FARM_WHEAT_PER_WORKER_PER_DAY), transport);
+        produceBasicWorkers(WorkstationType.MINE, ResourceType.IRON, cycle.perStep(MINE_IRON_PER_WORKER_PER_DAY), transport);
+        produceBasicWorkers(WorkstationType.LUMBER_MILL, ResourceType.LOG, cycle.perStep(LUMBER_LOGS_PER_WORKER_PER_DAY), transport);
 
         processCarpenter(cycle, transport);
 
-        WorkDemand bakerDemand = buildBakerDemand(cycle);
+        WorkDemand bakerDemand = buildBakerDemand(cycle, transport);
         if (bakerDemand != null) {
             allocateInputs(List.of(bakerDemand));
             int productivity = percent(bakerDemand.inputFactor);
@@ -191,7 +207,7 @@ public final class TownState {
             addProducedToStorage(bakerProduced, transport);
         }
 
-        WorkDemand smithDemand = buildBlacksmithDemand(cycle);
+        WorkDemand smithDemand = buildBlacksmithDemand(cycle, transport);
         if (smithDemand != null) {
             allocateInputs(List.of(smithDemand));
             int productivity = percent(smithDemand.inputFactor);
@@ -206,28 +222,38 @@ public final class TownState {
         TownWorkstationState courier = workstation(WorkstationType.COURIER);
         courier.setProductivityPercent(transport.productivityPercent());
         courier.setShortageFlags(0);
+        lastTransportCapacity = transport.capacity();
+        lastTransportRemaining = transport.remaining();
 
         consumeDailyUpkeep(cycle);
     }
 
-    private WorkDemand buildBlacksmithDemand(SimulationCycle cycle) {
+    private WorkDemand buildBlacksmithDemand(SimulationCycle cycle, TransportLoad transport) {
         TownWorkstationState workstation = workstation(WorkstationType.BLACKSMITH);
         if (workstation.workers() <= 0) {
             return null;
         }
-        long tools = toolsProducedBy(workstation.workers(), cycle);
+        long tools = transportedWorkerOutput(workstation.workers(), cycle.perStep(SMITH_TOOLS_PER_WORKER_PER_DAY), transport);
+        if (tools <= 0) {
+            workstation.setProductivityPercent(0);
+            return null;
+        }
         WorkDemand demand = new WorkDemand(WorkstationType.BLACKSMITH, workstation.workers(), workstation.priority());
         demand.add(ResourceType.IRON, tools * TOOL_IRON_COST);
         demand.add(ResourceType.STICK, tools * TOOL_STICK_COST);
         return demand;
     }
 
-    private WorkDemand buildBakerDemand(SimulationCycle cycle) {
+    private WorkDemand buildBakerDemand(SimulationCycle cycle, TransportLoad transport) {
         TownWorkstationState workstation = workstation(WorkstationType.BAKER);
         if (workstation.workers() <= 0) {
             return null;
         }
-        long bread = breadProducedBy(workstation.workers(), cycle);
+        long bread = transportedWorkerOutput(workstation.workers(), cycle.perStep(BAKER_BREAD_PER_WORKER_PER_DAY), transport);
+        if (bread <= 0) {
+            workstation.setProductivityPercent(0);
+            return null;
+        }
         WorkDemand demand = new WorkDemand(WorkstationType.BAKER, workstation.workers(), workstation.priority());
         demand.add(ResourceType.WHEAT, bread * BREAD_WHEAT_COST);
         demand.add(ResourceType.LOG, bread / BREAD_LOG_COST_DIVISOR);
@@ -322,6 +348,23 @@ public final class TownState {
         }
     }
 
+    private void produceBasicWorkers(WorkstationType type, ResourceType resource, long amountPerWorker, TransportLoad transport) {
+        TownWorkstationState workstation = workstation(type);
+        if (workstation.workers() <= 0 || amountPerWorker <= 0) {
+            return;
+        }
+        int activeWorkers = 0;
+        for (int i = 0; i < workstation.workers(); i++) {
+            if (transport.tryMove(amountPerWorker)) {
+                add(resource, amountPerWorker);
+                activeWorkers++;
+            } else {
+                transport.markOverflow(amountPerWorker);
+            }
+        }
+        workstation.setProductivityPercent(percent(activeWorkers / (double) workstation.workers()));
+    }
+
     private void processCarpenter(SimulationCycle cycle, TransportLoad transport) {
         TownWorkstationState carpenter = workstation(WorkstationType.CARPENTER);
         if (carpenter.workers() <= 0) {
@@ -336,13 +379,15 @@ public final class TownState {
             if (shouldMakeSticks() && raw(ResourceType.OAK_PLANKS) >= action * STICK_PLANK_COST
                     && transport.canMove(action * STICKS_PER_ACTION)) {
                 consume(ResourceType.OAK_PLANKS, action * STICK_PLANK_COST);
-                add(ResourceType.STICK, transport.move(action * STICKS_PER_ACTION));
+                transport.tryMove(action * STICKS_PER_ACTION);
+                add(ResourceType.STICK, action * STICKS_PER_ACTION);
                 completed += action;
                 continue;
             }
             if (raw(ResourceType.LOG) >= action && transport.canMove(action * PLANKS_PER_LOG)) {
                 consume(ResourceType.LOG, action);
-                add(ResourceType.OAK_PLANKS, transport.move(action * PLANKS_PER_LOG));
+                transport.tryMove(action * PLANKS_PER_LOG);
+                add(ResourceType.OAK_PLANKS, action * PLANKS_PER_LOG);
                 completed += action;
                 continue;
             }
@@ -432,7 +477,11 @@ public final class TownState {
         for (ResourceType resource : ResourceType.values()) {
             long amount = produced.get(resource);
             if (amount > 0) {
-                add(resource, transport.move(amount));
+                if (transport.tryMove(amount)) {
+                    add(resource, amount);
+                } else {
+                    transport.markOverflow(amount);
+                }
             }
         }
     }
@@ -735,6 +784,21 @@ public final class TownState {
         return cycle.perStep(COURIER_ITEMS_PER_WORKER_PER_DAY) * workers;
     }
 
+    private static long transportedWorkerOutput(int workers, long amountPerWorker, TransportLoad transport) {
+        if (workers <= 0 || amountPerWorker <= 0) {
+            return 0L;
+        }
+        int activeWorkers = 0;
+        for (int i = 0; i < workers; i++) {
+            if ((long) (activeWorkers + 1) * amountPerWorker <= transport.remaining()) {
+                activeWorkers++;
+            } else {
+                transport.markOverflow(amountPerWorker);
+            }
+        }
+        return amountPerWorker * activeWorkers;
+    }
+
     private static int toWhole(long scaled) {
         return (int) Math.max(Integer.MIN_VALUE, Math.min(Integer.MAX_VALUE, Math.round(scaled / (double) SCALE)));
     }
@@ -745,23 +809,23 @@ public final class TownState {
 
     public record SimulationCycle(int dayTicks, int nightTicks) {
         public static SimulationCycle ofSeconds(int daySeconds, int nightSeconds) {
-            int day = Math.max(STEP_TICKS, daySeconds * TICKS_PER_SECOND);
+            int day = Math.max(PRODUCTION_STEPS_PER_DAY, daySeconds * TICKS_PER_SECOND);
             int night = Math.max(0, nightSeconds * TICKS_PER_SECOND);
             return new SimulationCycle(day, night);
         }
 
         private boolean isDaytime(long gameTime) {
-            int totalTicks = Math.max(STEP_TICKS, dayTicks + nightTicks);
+            int totalTicks = Math.max(1, dayTicks + nightTicks);
             long cycleTime = Math.floorMod(gameTime, totalTicks);
             return cycleTime < dayTicks;
         }
 
         private long perStep(double amountPerDay) {
-            return Math.round(amountPerDay * SCALE / activeSteps());
+            return Math.round(amountPerDay * SCALE / PRODUCTION_STEPS_PER_DAY);
         }
 
-        private int activeSteps() {
-            return Math.max(1, (dayTicks + STEP_TICKS - 1) / STEP_TICKS);
+        private long stepTicks() {
+            return Math.max(1L, Math.round(dayTicks / (double) PRODUCTION_STEPS_PER_DAY));
         }
     }
 
@@ -896,16 +960,25 @@ public final class TownState {
             return amount <= Math.max(0, capacity - used);
         }
 
-        private long move(long amount) {
+        private boolean tryMove(long amount) {
             long requested = Math.max(0, amount);
-            long moved = Math.min(requested, Math.max(0, capacity - used));
-            used += moved;
-            overflow += requested - moved;
-            return moved;
+            if (!canMove(requested)) {
+                return false;
+            }
+            used += requested;
+            return true;
         }
 
         private void markOverflow(long amount) {
             overflow += Math.max(0, amount);
+        }
+
+        private long capacity() {
+            return capacity;
+        }
+
+        private long remaining() {
+            return Math.max(0, capacity - used);
         }
 
         private int productivityPercent() {
