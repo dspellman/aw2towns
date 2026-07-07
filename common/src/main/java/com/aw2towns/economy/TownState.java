@@ -1,7 +1,6 @@
 package com.aw2towns.economy;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -16,6 +15,8 @@ public final class TownState {
     public static final int STATUS_BLOCKED_MAX = 30;
     public static final int STATUS_PARTIAL_MAX = 89;
     public static final int LARGE_STOCKPILE_DAYS = 2;
+    public static final int MAX_WORKERS_PER_WORKSTATION = 5;
+    public static final int UNASSIGNED_WORKER_ASSIGNMENT = -1;
 
     private static final int TICKS_PER_SECOND = 20;
     private static final long DEFAULT_CAPACITY = 1_000_000_000L * SCALE;
@@ -42,6 +43,8 @@ public final class TownState {
     private long lastSimulatedGameTime;
     private long lastTransportCapacity;
     private long lastTransportRemaining;
+    private int nextWorkerId = 1;
+    private final List<TownWorker> townWorkers = new ArrayList<>();
     private final EnumMap<ResourceType, Long> storage = new EnumMap<>(ResourceType.class);
     private final EnumMap<ResourceType, Integer> productionPerDay = new EnumMap<>(ResourceType.class);
     private final EnumMap<ResourceType, Integer> consumptionPerDay = new EnumMap<>(ResourceType.class);
@@ -70,6 +73,7 @@ public final class TownState {
         town.workstation(WorkstationType.CARPENTER).setWorkers(1);
         town.workstation(WorkstationType.COURIER).setWorkers(2);
         town.workstation(WorkstationType.BLACKSMITH).setWorkers(2);
+        town.createWorkersFromWorkstationCounts();
         town.lastSimulatedGameTime = gameTime;
         town.refreshDailyRates();
         return town;
@@ -84,19 +88,42 @@ public final class TownState {
     }
 
     public int totalWorkers() {
-        return totalWorkers;
+        return townWorkers.isEmpty() ? totalWorkers : townWorkers.size();
     }
 
     public int assignedWorkers() {
         int assigned = 0;
-        for (TownWorkstationState workstation : workstations.values()) {
-            assigned += workstation.workers();
+        for (TownWorker worker : townWorkers) {
+            if (!worker.isUnassigned()) {
+                assigned++;
+            }
         }
         return assigned;
     }
 
     public int unassignedWorkers() {
-        return Math.max(0, totalWorkers - assignedWorkers());
+        if (townWorkers.isEmpty()) {
+            return Math.max(0, totalWorkers - assignedWorkers());
+        }
+        int unassigned = 0;
+        for (TownWorker worker : townWorkers) {
+            if (worker.isUnassigned()) {
+                unassigned++;
+            }
+        }
+        return unassigned;
+    }
+
+    public int workerId(int index) {
+        return index >= 0 && index < townWorkers.size() ? townWorkers.get(index).id() : 0;
+    }
+
+    public int workerAssignmentOrdinal(int index) {
+        if (index < 0 || index >= townWorkers.size()) {
+            return UNASSIGNED_WORKER_ASSIGNMENT;
+        }
+        WorkstationType assignment = townWorkers.get(index).assignment();
+        return assignment == null ? UNASSIGNED_WORKER_ASSIGNMENT : assignment.ordinal();
     }
 
     public int transportCapacityPerStep() {
@@ -132,16 +159,67 @@ public final class TownState {
     }
 
     public void adjustWorkers(WorkstationType type, int delta) {
-        TownWorkstationState workstation = workstation(type);
-        if (delta > 0 && unassignedWorkers() <= 0) {
-            return;
+        if (delta > 0) {
+            TownWorker worker = firstUnassignedWorker();
+            if (worker == null || workers(type) >= MAX_WORKERS_PER_WORKSTATION) {
+                return;
+            }
+            worker.assign(type);
+        } else if (delta < 0) {
+            TownWorker worker = lastWorkerAssignedTo(type);
+            if (worker == null) {
+                return;
+            }
+            worker.assign(null);
         }
-        workstation.setWorkers(workstation.workers() + delta);
+        syncWorkstationWorkerCounts();
         refreshDailyRates();
     }
 
     public void adjustPriority(WorkstationType type, int delta) {
-        workstation(type).adjustPriority(delta);
+        // Priorities are currently display-only while worker assignment is manual.
+    }
+
+    public boolean moveWorkerToUnassigned(int workerId) {
+        TownWorker worker = worker(workerId);
+        if (worker == null) {
+            return false;
+        }
+        worker.assign(null);
+        syncWorkstationWorkerCounts();
+        refreshDailyRates();
+        return true;
+    }
+
+    public boolean moveWorkerToWorkstation(int workerId, WorkstationType target) {
+        TownWorker worker = worker(workerId);
+        if (worker == null || target == null) {
+            return false;
+        }
+        if (worker.assignment() != target && workers(target) >= MAX_WORKERS_PER_WORKSTATION) {
+            return false;
+        }
+        worker.assign(target);
+        syncWorkstationWorkerCounts();
+        refreshDailyRates();
+        return true;
+    }
+
+    public boolean swapWorkers(int firstWorkerId, int secondWorkerId, WorkstationType expectedSecondAssignment) {
+        if (firstWorkerId == secondWorkerId) {
+            return false;
+        }
+        TownWorker first = worker(firstWorkerId);
+        TownWorker second = worker(secondWorkerId);
+        if (first == null || second == null || second.assignment() != expectedSecondAssignment) {
+            return false;
+        }
+        WorkstationType firstAssignment = first.assignment();
+        first.assign(second.assignment());
+        second.assign(firstAssignment);
+        syncWorkstationWorkerCounts();
+        refreshDailyRates();
+        return true;
     }
 
     public void resetPrototypeEconomy() {
@@ -156,6 +234,7 @@ public final class TownState {
         workstation(WorkstationType.CARPENTER).setWorkers(1);
         workstation(WorkstationType.COURIER).setWorkers(2);
         workstation(WorkstationType.BLACKSMITH).setWorkers(2);
+        createWorkersFromWorkstationCounts();
         refreshDailyRates();
     }
 
@@ -177,8 +256,6 @@ public final class TownState {
     }
 
     private void simulateStep(long gameTime, SimulationCycle cycle) {
-        refreshDailyRates();
-        autoBalanceWorkers();
         refreshDailyRates();
         long courierCapacity = courierTransportBy(workstation(WorkstationType.COURIER).workers(), cycle);
         lastTransportCapacity = courierCapacity;
@@ -293,43 +370,24 @@ public final class TownState {
         for (ResourceType resource : ResourceType.values()) {
             List<WorkDemand> needingResource = demands.stream()
                     .filter(demand -> demand.needed(resource) > 0)
-                    .sorted(Comparator.comparingInt(WorkDemand::priority).reversed())
                     .toList();
-            long available = raw(resource);
-            int index = 0;
-            while (index < needingResource.size()) {
-                int priority = needingResource.get(index).priority();
-                List<WorkDemand> group = new ArrayList<>();
-                while (index < needingResource.size() && needingResource.get(index).priority() == priority) {
-                    group.add(needingResource.get(index));
-                    index++;
-                }
-
-                long groupNeed = 0;
-                for (WorkDemand demand : group) {
-                    groupNeed += demand.needed(resource);
-                }
-                if (groupNeed <= 0) {
-                    continue;
-                }
-
-                double factor = Math.min(1.0D, available / (double) groupNeed);
-                long consumedByGroup = 0;
-                for (WorkDemand demand : group) {
-                    long consumed = Math.round(demand.needed(resource) * factor);
-                    demand.setAllocated(resource, consumed);
-                    consumedByGroup += consumed;
-                }
-                consume(resource, Math.min(available, consumedByGroup));
-                available = raw(resource);
-                if (available <= 0) {
-                    while (index < needingResource.size()) {
-                        needingResource.get(index).setAllocated(resource, 0);
-                        index++;
-                    }
-                    break;
-                }
+            long groupNeed = 0;
+            for (WorkDemand demand : needingResource) {
+                groupNeed += demand.needed(resource);
             }
+            if (groupNeed <= 0) {
+                continue;
+            }
+
+            long available = raw(resource);
+            double factor = Math.min(1.0D, available / (double) groupNeed);
+            long consumedByGroup = 0;
+            for (WorkDemand demand : needingResource) {
+                long consumed = Math.round(demand.needed(resource) * factor);
+                demand.setAllocated(resource, consumed);
+                consumedByGroup += consumed;
+            }
+            consume(resource, Math.min(available, consumedByGroup));
         }
 
         for (WorkDemand demand : demands) {
@@ -495,108 +553,6 @@ public final class TownState {
             workstation.setShortageFlags(workstation.shortageFlags() | shortageFlags(demand));
         }
         consumeIdleFood(cycle);
-    }
-
-    private void autoBalanceWorkers() {
-        trimSurplusWorkers();
-        while (unassignedWorkers() > 0) {
-            WorkstationType target = bestIdleWorkerTarget();
-            if (target == null) {
-                return;
-            }
-            TownWorkstationState workstation = workstation(target);
-            workstation.setWorkers(workstation.workers() + 1);
-            refreshDailyRates();
-            trimSurplusWorkers();
-        }
-    }
-
-    private void trimSurplusWorkers() {
-        boolean removed;
-        do {
-            removed = false;
-            for (WorkstationType type : WorkstationType.values()) {
-                if (canUnassignWorker(type)) {
-                    TownWorkstationState workstation = workstation(type);
-                    workstation.setWorkers(workstation.workers() - 1);
-                    refreshDailyRates();
-                    removed = true;
-                }
-            }
-        } while (removed);
-    }
-
-    private boolean canUnassignWorker(WorkstationType type) {
-        TownWorkstationState workstation = workstation(type);
-        if (workstation.workers() <= 0) {
-            return false;
-        }
-
-        workstation.setWorkers(workstation.workers() - 1);
-        refreshDailyRates();
-        boolean covered = !hasBasicDeficit();
-        workstation.setWorkers(workstation.workers() + 1);
-        refreshDailyRates();
-        return covered;
-    }
-
-    private boolean hasBasicDeficit() {
-        for (ResourceType resource : ResourceType.values()) {
-            if (consumptionPerDay(resource) > productionPerDay(resource)) {
-                return true;
-            }
-        }
-        return projectedProducedItemsPerDay() > courierCapacityPerDay();
-    }
-
-    private WorkstationType bestIdleWorkerTarget() {
-        EnumMap<WorkstationType, Double> needs = workstationDeficitNeeds();
-        WorkstationType bestDeficit = null;
-        double bestNeed = 0.0D;
-        for (WorkstationType type : WorkstationType.values()) {
-            double need = needs.get(type);
-            if (need > bestNeed) {
-                bestNeed = need;
-                bestDeficit = type;
-            }
-        }
-        return bestNeed > 0.0D ? bestDeficit : null;
-    }
-
-    private EnumMap<WorkstationType, Double> workstationDeficitNeeds() {
-        EnumMap<WorkstationType, Double> needs = new EnumMap<>(WorkstationType.class);
-        for (WorkstationType type : WorkstationType.values()) {
-            needs.put(type, 0.0D);
-        }
-
-        addDeficitNeed(needs, WorkstationType.FARM, ResourceType.WHEAT, FARM_WHEAT_PER_WORKER_PER_DAY);
-        addDeficitNeed(needs, WorkstationType.BAKER, ResourceType.BREAD, BAKER_BREAD_PER_WORKER_PER_DAY);
-        addDeficitNeed(needs, WorkstationType.MINE, ResourceType.IRON, MINE_IRON_PER_WORKER_PER_DAY);
-        addDeficitNeed(needs, WorkstationType.LUMBER_MILL, ResourceType.LOG, LUMBER_LOGS_PER_WORKER_PER_DAY);
-        addDeficitNeed(needs, WorkstationType.CARPENTER, ResourceType.STICK,
-                CARPENTER_ACTIONS_PER_WORKER_PER_DAY * STICKS_PER_ACTION);
-        addTransportNeed(needs);
-        addDeficitNeed(needs, WorkstationType.BLACKSMITH, ResourceType.PICKAXE, SMITH_TOOLS_PER_WORKER_PER_DAY);
-        addDeficitNeed(needs, WorkstationType.BLACKSMITH, ResourceType.AXE, SMITH_TOOLS_PER_WORKER_PER_DAY);
-        addDeficitNeed(needs, WorkstationType.BLACKSMITH, ResourceType.HOE, SMITH_TOOLS_PER_WORKER_PER_DAY);
-        addDeficitNeed(needs, WorkstationType.BLACKSMITH, ResourceType.HAMMER, SMITH_TOOLS_PER_WORKER_PER_DAY);
-        return needs;
-    }
-
-    private void addDeficitNeed(EnumMap<WorkstationType, Double> needs, WorkstationType type,
-                                ResourceType resource, double outputPerWorkerPerDay) {
-        int deficit = consumptionPerDay(resource) - productionPerDay(resource);
-        if (deficit <= 0 || outputPerWorkerPerDay <= 0.0D) {
-            return;
-        }
-        needs.put(type, needs.get(type) + deficit / outputPerWorkerPerDay);
-    }
-
-    private void addTransportNeed(EnumMap<WorkstationType, Double> needs) {
-        int deficit = projectedProducedItemsPerDay() - courierCapacityPerDay();
-        if (deficit > 0) {
-            needs.put(WorkstationType.COURIER, needs.get(WorkstationType.COURIER) + deficit / COURIER_ITEMS_PER_WORKER_PER_DAY);
-        }
     }
 
     private void consumeIdleFood(SimulationCycle cycle) {
@@ -807,6 +763,89 @@ public final class TownState {
         return (int) Math.round(Math.max(Integer.MIN_VALUE, Math.min(Integer.MAX_VALUE, value)));
     }
 
+    private int workers(WorkstationType type) {
+        return workstation(type).workers();
+    }
+
+    public void migrateWorkersFromWorkstationCounts() {
+        if (townWorkers.isEmpty()) {
+            createWorkersFromWorkstationCounts();
+        } else {
+            syncWorkstationWorkerCounts();
+        }
+        refreshDailyRates();
+    }
+
+    private void createWorkersFromWorkstationCounts() {
+        townWorkers.clear();
+        nextWorkerId = 1;
+        int assigned = 0;
+        for (WorkstationType type : WorkstationType.values()) {
+            int count = workstation(type).workers();
+            for (int i = 0; i < count; i++) {
+                addWorker(type);
+                assigned++;
+            }
+        }
+        int unassigned = Math.max(0, totalWorkers - assigned);
+        for (int i = 0; i < unassigned; i++) {
+            addWorker(null);
+        }
+        totalWorkers = townWorkers.size();
+        syncWorkstationWorkerCounts();
+    }
+
+    private TownWorker addWorker(WorkstationType assignment) {
+        TownWorker worker = new TownWorker(nextWorkerId++, assignment);
+        townWorkers.add(worker);
+        return worker;
+    }
+
+    private void syncWorkstationWorkerCounts() {
+        for (TownWorkstationState workstation : workstations.values()) {
+            workstation.setWorkers(0);
+        }
+        int highestId = 0;
+        for (TownWorker worker : townWorkers) {
+            highestId = Math.max(highestId, worker.id());
+            WorkstationType assignment = worker.assignment();
+            if (assignment != null) {
+                TownWorkstationState workstation = workstation(assignment);
+                workstation.setWorkers(workstation.workers() + 1);
+            }
+        }
+        totalWorkers = townWorkers.size();
+        nextWorkerId = Math.max(nextWorkerId, highestId + 1);
+    }
+
+    private TownWorker worker(int workerId) {
+        for (TownWorker worker : townWorkers) {
+            if (worker.id() == workerId) {
+                return worker;
+            }
+        }
+        return null;
+    }
+
+    private TownWorker firstUnassignedWorker() {
+        for (TownWorker worker : townWorkers) {
+            if (worker.isUnassigned()) {
+                return worker;
+            }
+        }
+        return null;
+    }
+
+    private TownWorker lastWorkerAssignedTo(WorkstationType type) {
+        for (int i = townWorkers.size() - 1; i >= 0; i--) {
+            TownWorker worker = townWorkers.get(i);
+            if (worker.assignment() == type) {
+                return worker;
+            }
+        }
+        return null;
+    }
+
     public record SimulationCycle(int dayTicks, int nightTicks) {
         public static SimulationCycle ofSeconds(int daySeconds, int nightSeconds) {
             int day = Math.max(PRODUCTION_STEPS_PER_DAY, daySeconds * TICKS_PER_SECOND);
@@ -835,6 +874,7 @@ public final class TownState {
         nbt.putString("name", name);
         nbt.putInt("totalWorkers", totalWorkers);
         nbt.putLong("lastSimulatedGameTime", lastSimulatedGameTime);
+        nbt.putInt("nextWorkerId", nextWorkerId);
 
         NbtCompound storageNbt = new NbtCompound();
         for (Map.Entry<ResourceType, Long> entry : storage.entrySet()) {
@@ -856,6 +896,12 @@ public final class TownState {
             workstationList.add(workstation.writeNbt());
         }
         nbt.put("workstations", workstationList);
+
+        NbtList workerList = new NbtList();
+        for (TownWorker worker : townWorkers) {
+            workerList.add(worker.writeNbt());
+        }
+        nbt.put("workers", workerList);
         return nbt;
     }
 
@@ -863,6 +909,7 @@ public final class TownState {
         TownState town = new TownState(nbt.getString("id"), nbt.getString("name"));
         town.totalWorkers = nbt.getInt("totalWorkers");
         town.lastSimulatedGameTime = nbt.getLong("lastSimulatedGameTime");
+        town.nextWorkerId = Math.max(1, nbt.getInt("nextWorkerId"));
 
         if (nbt.contains("storage")) {
             NbtCompound storageNbt = nbt.getCompound("storage");
@@ -893,6 +940,15 @@ public final class TownState {
             TownWorkstationState workstation = TownWorkstationState.readNbt(workstationList.getCompound(i));
             town.workstations.put(workstation.type(), workstation);
         }
+        if (nbt.contains("workers")) {
+            NbtList workerList = nbt.getList("workers", NbtElement.COMPOUND_TYPE);
+            for (int i = 0; i < workerList.size(); i++) {
+                town.townWorkers.add(TownWorker.readNbt(workerList.getCompound(i)));
+            }
+            town.syncWorkstationWorkerCounts();
+        } else {
+            town.createWorkersFromWorkstationCounts();
+        }
         town.refreshDailyRates();
         return town;
     }
@@ -913,10 +969,6 @@ public final class TownState {
                 needed.put(resource, 0L);
                 allocated.put(resource, 0L);
             }
-        }
-
-        private int priority() {
-            return priority;
         }
 
         private void add(ResourceType resource, long amount) {

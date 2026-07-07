@@ -22,6 +22,7 @@ public class TownManagerScreenHandler extends ScreenHandler {
 
     private static final int WORKSTATION_COUNT = WorkstationType.values().length;
     private static final int RESOURCE_COUNT = ResourceType.values().length;
+    public static final int MAX_SYNCED_WORKERS = 64;
 
     public static final int BUTTON_FARM_MINUS = 0;
     public static final int BUTTON_FARM_PLUS = 1;
@@ -51,6 +52,9 @@ public class TownManagerScreenHandler extends ScreenHandler {
     public static final int BUTTON_COURIER_PRIORITY_PLUS = 25;
     public static final int BUTTON_BLACKSMITH_PRIORITY_MINUS = 26;
     public static final int BUTTON_BLACKSMITH_PRIORITY_PLUS = 27;
+    private static final int WORKER_MOVE_BASE = 1000;
+    private static final int WORKER_ID_MASK = 0x3FF;
+    private static final int WORKER_MOVE_TARGET_UNASSIGNED = WorkstationType.values().length;
 
     private static final int IDX_TOTAL_WORKERS = 0;
     private static final int IDX_UNASSIGNED = 1;
@@ -63,7 +67,9 @@ public class TownManagerScreenHandler extends ScreenHandler {
     private static final int IDX_STORAGE = IDX_SHORTAGES + WORKSTATION_COUNT;
     private static final int IDX_PRODUCTION = IDX_STORAGE + RESOURCE_COUNT;
     private static final int IDX_CONSUMPTION = IDX_PRODUCTION + RESOURCE_COUNT;
-    public static final int DATA_COUNT = IDX_CONSUMPTION + RESOURCE_COUNT;
+    private static final int IDX_WORKER_IDS = IDX_CONSUMPTION + RESOURCE_COUNT;
+    private static final int IDX_WORKER_ASSIGNMENTS = IDX_WORKER_IDS + MAX_SYNCED_WORKERS;
+    public static final int DATA_COUNT = IDX_WORKER_ASSIGNMENTS + MAX_SYNCED_WORKERS;
 
     private final BlockPos pos;
     private final ScreenHandlerContext context;
@@ -93,13 +99,16 @@ public class TownManagerScreenHandler extends ScreenHandler {
         if (!(player.getWorld() instanceof ServerWorld serverWorld)) {
             return false;
         }
+        if (id >= WORKER_MOVE_BASE) {
+            return handleWorkerMove(player, serverWorld, id);
+        }
         ButtonAction action = buttonAction(id);
         if (action == null) {
             return false;
         }
         TownState town = TownSavedData.get(serverWorld).firstTown(serverWorld.getTime());
         if (action.priority) {
-            town.adjustPriority(action.type, action.delta);
+            return true;
         } else {
             town.adjustWorkers(action.type, action.delta);
         }
@@ -171,8 +180,37 @@ public class TownManagerScreenHandler extends ScreenHandler {
         return consumption <= 0 || resource(resource) >= consumption * TownState.LARGE_STOCKPILE_DAYS;
     }
 
+    public int workerId(int index) {
+        return index >= 0 && index < MAX_SYNCED_WORKERS ? properties.get(IDX_WORKER_IDS + index) : 0;
+    }
+
+    public int workerAssignmentOrdinal(int index) {
+        return index >= 0 && index < MAX_SYNCED_WORKERS
+                ? properties.get(IDX_WORKER_ASSIGNMENTS + index)
+                : TownState.UNASSIGNED_WORKER_ASSIGNMENT;
+    }
+
     public BlockPos pos() {
         return pos;
+    }
+
+    public static int workerMoveToUnassignedButtonId(int workerId) {
+        return workerMoveButtonId(workerId, WORKER_MOVE_TARGET_UNASSIGNED, 0);
+    }
+
+    public static int workerMoveToWorkstationButtonId(int workerId, WorkstationType target) {
+        return workerMoveButtonId(workerId, target.ordinal(), 0);
+    }
+
+    public static int workerSwapButtonId(int workerId, WorkstationType target, int targetWorkerId) {
+        return workerMoveButtonId(workerId, target.ordinal(), targetWorkerId);
+    }
+
+    private static int workerMoveButtonId(int workerId, int targetOrdinal, int targetWorkerId) {
+        return WORKER_MOVE_BASE
+                + (workerId & WORKER_ID_MASK)
+                + ((targetWorkerId & WORKER_ID_MASK) << 10)
+                + ((targetOrdinal & 0xF) << 20);
     }
 
     private static PropertyDelegate createServerProperties(PlayerEntity player) {
@@ -216,6 +254,12 @@ public class TownManagerScreenHandler extends ScreenHandler {
                 if (index >= IDX_CONSUMPTION && index < IDX_CONSUMPTION + RESOURCE_COUNT) {
                     return town.consumptionPerDay(resource(index - IDX_CONSUMPTION));
                 }
+                if (index >= IDX_WORKER_IDS && index < IDX_WORKER_IDS + MAX_SYNCED_WORKERS) {
+                    return town.workerId(index - IDX_WORKER_IDS);
+                }
+                if (index >= IDX_WORKER_ASSIGNMENTS && index < IDX_WORKER_ASSIGNMENTS + MAX_SYNCED_WORKERS) {
+                    return town.workerAssignmentOrdinal(index - IDX_WORKER_ASSIGNMENTS);
+                }
                 return 0;
             }
 
@@ -227,6 +271,39 @@ public class TownManagerScreenHandler extends ScreenHandler {
                 return DATA_COUNT;
             }
         };
+    }
+
+    private boolean handleWorkerMove(PlayerEntity player, ServerWorld serverWorld, int id) {
+        WorkerMove move = decodeWorkerMove(id);
+        if (move == null || !canUse(player)) {
+            return false;
+        }
+        TownState town = TownSavedData.get(serverWorld).firstTown(serverWorld.getTime());
+        boolean changed;
+        if (move.targetOrdinal == WORKER_MOVE_TARGET_UNASSIGNED) {
+            changed = town.moveWorkerToUnassigned(move.workerId);
+        } else {
+            WorkstationType target = WorkstationType.values()[move.targetOrdinal];
+            changed = move.targetWorkerId > 0
+                    ? town.swapWorkers(move.workerId, move.targetWorkerId, target)
+                    : town.moveWorkerToWorkstation(move.workerId, target);
+        }
+        if (changed) {
+            TownSavedData.get(serverWorld).markDirty();
+            sendContentUpdates();
+        }
+        return changed;
+    }
+
+    private static WorkerMove decodeWorkerMove(int id) {
+        int payload = id - WORKER_MOVE_BASE;
+        int workerId = payload & WORKER_ID_MASK;
+        int targetWorkerId = (payload >> 10) & WORKER_ID_MASK;
+        int targetOrdinal = (payload >> 20) & 0xF;
+        if (workerId <= 0 || targetOrdinal < 0 || targetOrdinal > WORKER_MOVE_TARGET_UNASSIGNED) {
+            return null;
+        }
+        return new WorkerMove(workerId, targetOrdinal, targetWorkerId);
     }
 
     private static TownWorkstationState workstation(TownState town, int ordinal) {
@@ -272,4 +349,6 @@ public class TownManagerScreenHandler extends ScreenHandler {
     }
 
     private record ButtonAction(WorkstationType type, int delta, boolean priority) {}
+
+    private record WorkerMove(int workerId, int targetOrdinal, int targetWorkerId) {}
 }

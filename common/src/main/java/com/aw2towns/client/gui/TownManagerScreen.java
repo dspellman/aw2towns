@@ -1,5 +1,6 @@
 package com.aw2towns.client.gui;
 
+import com.aw2towns.AW2Towns;
 import com.aw2towns.economy.ResourceType;
 import com.aw2towns.economy.TownState;
 import com.aw2towns.economy.WorkstationType;
@@ -11,6 +12,7 @@ import net.minecraft.client.gui.screen.ingame.HandledScreen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.text.Text;
+import net.minecraft.util.Identifier;
 
 public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
 
@@ -22,6 +24,7 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
     private static final int GOOD = 0xFF79D17B;
     private static final int WARN = 0xFFFFC76A;
     private static final int BAD = 0xFFFF6B6B;
+    private static final int SLOT = 0xFF8C9189;
     private static final int ROW_HEIGHT = 14;
     private static final int LIST_X = 10;
     private static final int LIST_Y = 74;
@@ -29,12 +32,25 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
     private static final int LIST_H = 160;
     private static final int WORKER_ROW_HEIGHT = 24;
     private static final int STATUS_ROW_HEIGHT = 24;
+    private static final int WORKER_ICON_SIZE = 12;
+    private static final int WORKER_TARGET_RADIUS = 8;
+    private static final int WORKER_HEADER_X = 126;
+    private static final int WORKER_HEADER_Y = 48;
+    private static final int WORKER_HEADER_W = 156;
+    private static final int WORKER_HEADER_H = 18;
+    private static final int WORKER_SLOT_X = 126;
+    private static final int WORKER_SLOT_SPACING = 18;
+    private static final Identifier WORKER_ICON = AW2Towns.id("textures/gui/worker.png");
 
     private final List<OverviewButton> overviewButtons = new ArrayList<>();
+    private final List<WorkerIcon> workerIcons = new ArrayList<>();
+    private final List<SlotTarget> vacantSlots = new ArrayList<>();
+    private final List<RowTarget> workerRows = new ArrayList<>();
     private Tab currentTab = Tab.OVERVIEW;
     private int workersScroll;
     private int overviewStatusScroll;
     private int productionScroll;
+    private DraggedWorker draggedWorker;
 
     public TownManagerScreen(TownManagerScreenHandler handler, PlayerInventory inventory, Text title) {
         super(handler, inventory, title);
@@ -77,8 +93,34 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         renderBackground(context, mouseX, mouseY, delta);
         super.render(context, mouseX, mouseY, delta);
+        drawDraggedWorker(context, mouseX, mouseY);
         drawMouseoverTooltip(context, mouseX, mouseY);
         drawListTooltip(context, mouseX, mouseY);
+    }
+
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (button == 0 && currentTab == Tab.WORKERS) {
+            WorkerIcon workerIcon = closestWorkerIcon((int) mouseX - x, (int) mouseY - y, 0);
+            if (workerIcon != null) {
+                draggedWorker = new DraggedWorker(workerIcon.workerId());
+                return true;
+            }
+        }
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (button == 0 && draggedWorker != null) {
+            int buttonId = workerDropButtonId((int) mouseX - x, (int) mouseY - y, draggedWorker.workerId());
+            draggedWorker = null;
+            if (buttonId != 0) {
+                click(buttonId);
+            }
+            return true;
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
     }
 
     @Override
@@ -126,10 +168,17 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
         context.drawText(textRenderer, title, titleX, titleY, TEXT, false);
         context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.prototype_town"),
                 10, 52, TEXT, false);
-        context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.workers",
-                handler.totalWorkers(), handler.unassignedWorkers()), 126, 48, MUTED, false);
-        context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.transport",
-                handler.transportRemaining(), handler.transportCapacity()), 126, 58, MUTED, false);
+        if (currentTab == Tab.WORKERS) {
+            workerIcons.clear();
+            vacantSlots.clear();
+            workerRows.clear();
+            drawUnassignedWorkers(context);
+        } else {
+            context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.workers",
+                    handler.totalWorkers(), handler.unassignedWorkers()), 126, 48, MUTED, false);
+            context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.transport",
+                    handler.transportRemaining(), handler.transportCapacity()), 126, 58, MUTED, false);
+        }
 
         switch (currentTab) {
             case OVERVIEW -> drawOverview(context);
@@ -162,17 +211,17 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
             ButtonWidget button = overviewButton.button();
             boolean rowVisible = positionOverviewButton(overviewButton);
             button.visible = rowVisible;
-            button.active = rowVisible;
+            button.active = false;
         }
     }
 
     private boolean positionOverviewButton(OverviewButton overviewButton) {
         boolean workerButton = isWorkerButton(overviewButton);
-        if (workerButton && currentTab != Tab.WORKERS || !workerButton && currentTab != Tab.OVERVIEW) {
+        if (workerButton || currentTab != Tab.OVERVIEW) {
             return false;
         }
-        int scroll = workerButton ? workersScroll : overviewStatusScroll;
-        int rowHeight = workerButton ? WORKER_ROW_HEIGHT : STATUS_ROW_HEIGHT;
+        int scroll = overviewStatusScroll;
+        int rowHeight = STATUS_ROW_HEIGHT;
         int row = overviewButton.type().ordinal() - scroll;
         if (row < 0 || row >= visibleRows(rowHeight)) {
             return false;
@@ -210,8 +259,58 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
             WorkstationType type = WorkstationType.values()[i];
             int rowY = LIST_Y + 18 + row * WORKER_ROW_HEIGHT;
             context.drawText(textRenderer, type.displayName(), LIST_X + 6, rowY + 4, workstationColor(type), false);
-            context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.worker_count", handler.workers(type)),
-                    LIST_X + 112, rowY + 4, MUTED, false);
+            drawWorkerSlots(context, type, rowY);
+            workerRows.add(new RowTarget(type, LIST_X, rowY, LIST_X + LIST_W, rowY + WORKER_ROW_HEIGHT));
+        }
+    }
+
+    private void drawUnassignedWorkers(DrawContext context) {
+        List<Integer> workers = workerIdsAssignedTo(TownState.UNASSIGNED_WORKER_ASSIGNMENT);
+        int count = workers.size();
+        if (count <= 0) {
+            return;
+        }
+        int span = WORKER_HEADER_W - WORKER_ICON_SIZE;
+        int step = count <= 1 ? 0 : span / (count - 1);
+        for (int i = 0; i < count; i++) {
+            int iconX = WORKER_HEADER_X + (count <= 1 ? span / 2 : step * i);
+            int iconY = WORKER_HEADER_Y + (WORKER_HEADER_H - WORKER_ICON_SIZE) / 2;
+            addAndDrawWorkerIcon(context, workers.get(i), null, iconX, iconY);
+        }
+    }
+
+    private void drawWorkerSlots(DrawContext context, WorkstationType type, int rowY) {
+        List<Integer> workers = workerIdsAssignedTo(type.ordinal());
+        for (int slot = 0; slot < TownState.MAX_WORKERS_PER_WORKSTATION; slot++) {
+            int slotX = WORKER_SLOT_X + slot * WORKER_SLOT_SPACING;
+            int slotY = rowY + 3;
+            context.drawBorder(slotX, slotY, WORKER_ICON_SIZE + 2, WORKER_ICON_SIZE + 2, SLOT);
+            if (slot < workers.size()) {
+                addAndDrawWorkerIcon(context, workers.get(slot), type, slotX + 1, slotY + 1);
+            } else {
+                vacantSlots.add(new SlotTarget(type, slotX + 1 + WORKER_ICON_SIZE / 2, slotY + 1 + WORKER_ICON_SIZE / 2));
+            }
+        }
+    }
+
+    private List<Integer> workerIdsAssignedTo(int assignmentOrdinal) {
+        List<Integer> workers = new ArrayList<>();
+        int count = Math.min(handler.totalWorkers(), TownManagerScreenHandler.MAX_SYNCED_WORKERS);
+        for (int i = 0; i < count; i++) {
+            int workerId = handler.workerId(i);
+            if (workerId > 0 && handler.workerAssignmentOrdinal(i) == assignmentOrdinal) {
+                workers.add(workerId);
+            }
+        }
+        return workers;
+    }
+
+    private void addAndDrawWorkerIcon(DrawContext context, int workerId, WorkstationType assignment, int iconX, int iconY) {
+        int centerX = iconX + WORKER_ICON_SIZE / 2;
+        int centerY = iconY + WORKER_ICON_SIZE / 2;
+        workerIcons.add(new WorkerIcon(workerId, centerX, centerY, assignment));
+        if (draggedWorker == null || draggedWorker.workerId() != workerId) {
+            drawWorkerIcon(context, iconX, iconY);
         }
     }
 
@@ -262,6 +361,90 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
         context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.made"), LIST_X + 104, LIST_Y + 6, TEXT, false);
         context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.used"), LIST_X + 150, LIST_Y + 6, TEXT, false);
         context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.stored"), LIST_X + 200, LIST_Y + 6, TEXT, false);
+    }
+
+    private void drawDraggedWorker(DrawContext context, int mouseX, int mouseY) {
+        if (draggedWorker == null) {
+            return;
+        }
+        drawWorkerIcon(context, mouseX - WORKER_ICON_SIZE / 2, mouseY - WORKER_ICON_SIZE / 2);
+    }
+
+    private void drawWorkerIcon(DrawContext context, int iconX, int iconY) {
+        context.drawTexture(WORKER_ICON, iconX, iconY, 0, 0, WORKER_ICON_SIZE, WORKER_ICON_SIZE,
+                WORKER_ICON_SIZE, WORKER_ICON_SIZE);
+    }
+
+    private int workerDropButtonId(int relativeX, int relativeY, int draggedWorkerId) {
+        if (isOverUnassignedHeader(relativeX, relativeY)) {
+            return TownManagerScreenHandler.workerMoveToUnassignedButtonId(draggedWorkerId);
+        }
+
+        WorkerIcon workerTarget = closestWorkerIcon(relativeX, relativeY, draggedWorkerId);
+        if (workerTarget != null && workerTarget.assignment() != null) {
+            return TownManagerScreenHandler.workerSwapButtonId(draggedWorkerId, workerTarget.assignment(), workerTarget.workerId());
+        }
+
+        SlotTarget vacantSlot = closestVacantSlot(relativeX, relativeY);
+        if (vacantSlot != null) {
+            return TownManagerScreenHandler.workerMoveToWorkstationButtonId(draggedWorkerId, vacantSlot.type());
+        }
+
+        RowTarget row = rowTargetAt(relativeX, relativeY);
+        if (row != null && handler.workers(row.type()) < TownState.MAX_WORKERS_PER_WORKSTATION) {
+            return TownManagerScreenHandler.workerMoveToWorkstationButtonId(draggedWorkerId, row.type());
+        }
+        return 0;
+    }
+
+    private WorkerIcon closestWorkerIcon(int relativeX, int relativeY, int ignoredWorkerId) {
+        WorkerIcon closest = null;
+        int closestDistance = WORKER_TARGET_RADIUS * WORKER_TARGET_RADIUS + 1;
+        for (WorkerIcon workerIcon : workerIcons) {
+            if (workerIcon.workerId() == ignoredWorkerId) {
+                continue;
+            }
+            int distance = distanceSquared(relativeX, relativeY, workerIcon.centerX(), workerIcon.centerY());
+            if (distance <= WORKER_TARGET_RADIUS * WORKER_TARGET_RADIUS && distance < closestDistance) {
+                closestDistance = distance;
+                closest = workerIcon;
+            }
+        }
+        return closest;
+    }
+
+    private SlotTarget closestVacantSlot(int relativeX, int relativeY) {
+        SlotTarget closest = null;
+        int closestDistance = WORKER_TARGET_RADIUS * WORKER_TARGET_RADIUS + 1;
+        for (SlotTarget slot : vacantSlots) {
+            int distance = distanceSquared(relativeX, relativeY, slot.centerX(), slot.centerY());
+            if (distance <= WORKER_TARGET_RADIUS * WORKER_TARGET_RADIUS && distance < closestDistance) {
+                closestDistance = distance;
+                closest = slot;
+            }
+        }
+        return closest;
+    }
+
+    private RowTarget rowTargetAt(int relativeX, int relativeY) {
+        for (RowTarget row : workerRows) {
+            if (relativeX >= row.minX() && relativeX < row.maxX()
+                    && relativeY >= row.minY() && relativeY < row.maxY()) {
+                return row;
+            }
+        }
+        return null;
+    }
+
+    private boolean isOverUnassignedHeader(int relativeX, int relativeY) {
+        return relativeX >= WORKER_HEADER_X && relativeX < WORKER_HEADER_X + WORKER_HEADER_W
+                && relativeY >= WORKER_HEADER_Y && relativeY < WORKER_HEADER_Y + WORKER_HEADER_H;
+    }
+
+    private static int distanceSquared(int x1, int y1, int x2, int y2) {
+        int dx = x1 - x2;
+        int dy = y1 - y2;
+        return dx * dx + dy * dy;
     }
 
     private void drawListTooltip(DrawContext context, int mouseX, int mouseY) {
@@ -407,4 +590,12 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
     }
 
     private record OverviewButton(ButtonWidget button, WorkstationType type, OverviewButtonKind kind) {}
+
+    private record WorkerIcon(int workerId, int centerX, int centerY, WorkstationType assignment) {}
+
+    private record SlotTarget(WorkstationType type, int centerX, int centerY) {}
+
+    private record RowTarget(WorkstationType type, int minX, int minY, int maxX, int maxY) {}
+
+    private record DraggedWorker(int workerId) {}
 }
