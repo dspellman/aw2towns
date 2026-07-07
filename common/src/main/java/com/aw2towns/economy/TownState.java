@@ -22,13 +22,18 @@ public final class TownState {
     private static final double BREAD_PER_WORKER_PER_DAY = 1.0D;
     private static final double TOOL_PER_WORKER_PER_DAY = 1.0D;
     private static final double MINE_IRON_PER_WORKER_PER_DAY = 15.0D;
-    private static final double LUMBER_PLANKS_PER_WORKER_PER_DAY = 15.0D;
+    private static final double LUMBER_LOGS_PER_WORKER_PER_DAY = 15.0D;
     private static final double FARM_WHEAT_PER_WORKER_PER_DAY = 15.0D;
     private static final double BAKER_BREAD_PER_WORKER_PER_DAY = 10.0D;
+    private static final double CARPENTER_ACTIONS_PER_WORKER_PER_DAY = 15.0D;
     private static final double SMITH_TOOLS_PER_WORKER_PER_DAY = 10.0D;
     private static final long BREAD_WHEAT_COST = 3L;
+    private static final long BREAD_LOG_COST_DIVISOR = 4L;
+    private static final long PLANKS_PER_LOG = 4L;
+    private static final long STICK_PLANK_COST = 2L;
+    private static final long STICKS_PER_ACTION = 4L;
     private static final long TOOL_IRON_COST = 3L;
-    private static final long TOOL_PLANKS_COST = 3L;
+    private static final long TOOL_STICK_COST = 2L;
 
     private final String id;
     private String name;
@@ -54,11 +59,12 @@ public final class TownState {
 
     public static TownState starter(long gameTime) {
         TownState town = new TownState("starter", "Prototype Town");
-        town.totalWorkers = 12;
-        town.workstation(WorkstationType.FARM).setWorkers(3);
-        town.workstation(WorkstationType.BAKER).setWorkers(0);
+        town.totalWorkers = 16;
+        town.workstation(WorkstationType.FARM).setWorkers(4);
+        town.workstation(WorkstationType.BAKER).setWorkers(2);
         town.workstation(WorkstationType.MINE).setWorkers(3);
-        town.workstation(WorkstationType.LUMBER_MILL).setWorkers(2);
+        town.workstation(WorkstationType.LUMBER_MILL).setWorkers(4);
+        town.workstation(WorkstationType.CARPENTER).setWorkers(1);
         town.workstation(WorkstationType.BLACKSMITH).setWorkers(2);
         town.lastSimulatedGameTime = gameTime;
         town.refreshDailyRates();
@@ -123,14 +129,15 @@ public final class TownState {
     }
 
     public void resetPrototypeEconomy() {
-        totalWorkers = 12;
+        totalWorkers = 16;
         for (ResourceType resource : ResourceType.values()) {
             resourceRaw(resource, 0L);
         }
-        workstation(WorkstationType.FARM).setWorkers(3);
-        workstation(WorkstationType.BAKER).setWorkers(0);
+        workstation(WorkstationType.FARM).setWorkers(4);
+        workstation(WorkstationType.BAKER).setWorkers(2);
         workstation(WorkstationType.MINE).setWorkers(3);
-        workstation(WorkstationType.LUMBER_MILL).setWorkers(2);
+        workstation(WorkstationType.LUMBER_MILL).setWorkers(4);
+        workstation(WorkstationType.CARPENTER).setWorkers(1);
         workstation(WorkstationType.BLACKSMITH).setWorkers(2);
         refreshDailyRates();
     }
@@ -165,6 +172,8 @@ public final class TownState {
         produceFor(WorkstationType.MINE, workstation(WorkstationType.MINE).workers(), 1.0D, produced, cycle);
         produceFor(WorkstationType.LUMBER_MILL, workstation(WorkstationType.LUMBER_MILL).workers(), 1.0D, produced, cycle);
         addProducedToStorage(produced);
+
+        processCarpenter(cycle);
 
         WorkDemand bakerDemand = buildBakerDemand(cycle);
         if (bakerDemand != null) {
@@ -201,7 +210,7 @@ public final class TownState {
         long tools = toolsProducedBy(workstation.workers(), cycle);
         WorkDemand demand = new WorkDemand(WorkstationType.BLACKSMITH, workstation.workers(), workstation.priority());
         demand.add(ResourceType.IRON, tools * TOOL_IRON_COST);
-        demand.add(ResourceType.OAK_PLANKS, tools * TOOL_PLANKS_COST);
+        demand.add(ResourceType.STICK, tools * TOOL_STICK_COST);
         return demand;
     }
 
@@ -213,6 +222,7 @@ public final class TownState {
         long bread = breadProducedBy(workstation.workers(), cycle);
         WorkDemand demand = new WorkDemand(WorkstationType.BAKER, workstation.workers(), workstation.priority());
         demand.add(ResourceType.WHEAT, bread * BREAD_WHEAT_COST);
+        demand.add(ResourceType.LOG, bread / BREAD_LOG_COST_DIVISOR);
         return demand;
     }
 
@@ -297,9 +307,48 @@ public final class TownState {
             case FARM -> addProduced(produced, ResourceType.WHEAT, cycle.perStep(FARM_WHEAT_PER_WORKER_PER_DAY) * workers, factor);
             case BAKER -> addProduced(produced, ResourceType.BREAD, breadProducedBy(workers, cycle), factor);
             case MINE -> addProduced(produced, ResourceType.IRON, cycle.perStep(MINE_IRON_PER_WORKER_PER_DAY) * workers, factor);
-            case LUMBER_MILL -> addProduced(produced, ResourceType.OAK_PLANKS, cycle.perStep(LUMBER_PLANKS_PER_WORKER_PER_DAY) * workers, factor);
+            case LUMBER_MILL -> addProduced(produced, ResourceType.LOG, cycle.perStep(LUMBER_LOGS_PER_WORKER_PER_DAY) * workers, factor);
+            case CARPENTER -> {}
             case BLACKSMITH -> addProducedTools(produced, Math.round(toolsProducedBy(workers, cycle) * factor));
         }
+    }
+
+    private void processCarpenter(SimulationCycle cycle) {
+        TownWorkstationState carpenter = workstation(WorkstationType.CARPENTER);
+        if (carpenter.workers() <= 0) {
+            return;
+        }
+
+        long actions = carpenterActionsBy(carpenter.workers(), cycle);
+        long completed = 0L;
+        int shortageFlags = 0;
+        while (actions - completed > 0) {
+            long action = Math.min(SCALE, actions - completed);
+            if (shouldMakeSticks() && raw(ResourceType.OAK_PLANKS) >= action * STICK_PLANK_COST) {
+                consume(ResourceType.OAK_PLANKS, action * STICK_PLANK_COST);
+                add(ResourceType.STICK, action * STICKS_PER_ACTION);
+                completed += action;
+                continue;
+            }
+            if (raw(ResourceType.LOG) >= action) {
+                consume(ResourceType.LOG, action);
+                add(ResourceType.OAK_PLANKS, action * PLANKS_PER_LOG);
+                completed += action;
+                continue;
+            }
+            shortageFlags |= 1 << ResourceType.LOG.ordinal();
+            if (shouldMakeSticks()) {
+                shortageFlags |= 1 << ResourceType.OAK_PLANKS.ordinal();
+            }
+            break;
+        }
+
+        carpenter.setProductivityPercent(percent(actions <= 0 ? 1.0D : completed / (double) actions));
+        carpenter.setShortageFlags(shortageFlags);
+    }
+
+    private boolean shouldMakeSticks() {
+        return raw(ResourceType.STICK) < (long) consumptionPerDay(ResourceType.STICK) * SCALE;
     }
 
     private void addProducedTools(EnumMap<ResourceType, Long> produced, long totalTools) {
@@ -435,7 +484,9 @@ public final class TownState {
         addDeficitNeed(needs, WorkstationType.FARM, ResourceType.WHEAT, FARM_WHEAT_PER_WORKER_PER_DAY);
         addDeficitNeed(needs, WorkstationType.BAKER, ResourceType.BREAD, BAKER_BREAD_PER_WORKER_PER_DAY);
         addDeficitNeed(needs, WorkstationType.MINE, ResourceType.IRON, MINE_IRON_PER_WORKER_PER_DAY);
-        addDeficitNeed(needs, WorkstationType.LUMBER_MILL, ResourceType.OAK_PLANKS, LUMBER_PLANKS_PER_WORKER_PER_DAY);
+        addDeficitNeed(needs, WorkstationType.LUMBER_MILL, ResourceType.LOG, LUMBER_LOGS_PER_WORKER_PER_DAY);
+        addDeficitNeed(needs, WorkstationType.CARPENTER, ResourceType.STICK,
+                CARPENTER_ACTIONS_PER_WORKER_PER_DAY * STICKS_PER_ACTION);
         addDeficitNeed(needs, WorkstationType.BLACKSMITH, ResourceType.PICKAXE, SMITH_TOOLS_PER_WORKER_PER_DAY);
         addDeficitNeed(needs, WorkstationType.BLACKSMITH, ResourceType.AXE, SMITH_TOOLS_PER_WORKER_PER_DAY);
         addDeficitNeed(needs, WorkstationType.BLACKSMITH, ResourceType.HOE, SMITH_TOOLS_PER_WORKER_PER_DAY);
@@ -468,18 +519,41 @@ public final class TownState {
         int breadPerDay = whole(BAKER_BREAD_PER_WORKER_PER_DAY * workstation(WorkstationType.BAKER).workers());
         productionPerDay.put(ResourceType.BREAD, breadPerDay);
         productionPerDay.put(ResourceType.IRON, whole(MINE_IRON_PER_WORKER_PER_DAY * workstation(WorkstationType.MINE).workers()));
-        productionPerDay.put(ResourceType.OAK_PLANKS, whole(LUMBER_PLANKS_PER_WORKER_PER_DAY * workstation(WorkstationType.LUMBER_MILL).workers()));
+        productionPerDay.put(ResourceType.LOG, whole(LUMBER_LOGS_PER_WORKER_PER_DAY * workstation(WorkstationType.LUMBER_MILL).workers()));
 
         int toolsPerDay = whole(SMITH_TOOLS_PER_WORKER_PER_DAY * workstation(WorkstationType.BLACKSMITH).workers());
         consumptionPerDay.put(ResourceType.WHEAT, (int) (breadPerDay * BREAD_WHEAT_COST));
+        consumptionPerDay.put(ResourceType.LOG, (int) Math.ceil(breadPerDay / (double) BREAD_LOG_COST_DIVISOR));
         consumptionPerDay.put(ResourceType.BREAD, whole(totalWorkers * BREAD_PER_WORKER_PER_DAY));
         consumptionPerDay.put(ResourceType.IRON, (int) (toolsPerDay * TOOL_IRON_COST));
-        consumptionPerDay.put(ResourceType.OAK_PLANKS, (int) (toolsPerDay * TOOL_PLANKS_COST));
+        consumptionPerDay.put(ResourceType.STICK, (int) (toolsPerDay * TOOL_STICK_COST));
         consumptionPerDay.put(ResourceType.PICKAXE, whole(workstation(WorkstationType.MINE).workers() * TOOL_PER_WORKER_PER_DAY));
         consumptionPerDay.put(ResourceType.AXE, whole(workstation(WorkstationType.LUMBER_MILL).workers() * TOOL_PER_WORKER_PER_DAY));
         consumptionPerDay.put(ResourceType.HOE, whole(workstation(WorkstationType.FARM).workers() * TOOL_PER_WORKER_PER_DAY));
         consumptionPerDay.put(ResourceType.HAMMER, whole(workstation(WorkstationType.BLACKSMITH).workers() * TOOL_PER_WORKER_PER_DAY));
+        addCarpenterProductionRates(whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY * workstation(WorkstationType.CARPENTER).workers()));
         addToolProductionRates(toolsPerDay);
+    }
+
+    private void addCarpenterProductionRates(int actions) {
+        int remaining = Math.max(0, actions);
+        while (remaining > 0) {
+            if (productionPerDay(ResourceType.STICK) < consumptionPerDay(ResourceType.STICK)
+                    && projectedPlanks() >= STICK_PLANK_COST) {
+                productionPerDay.put(ResourceType.STICK, productionPerDay.get(ResourceType.STICK) + (int) STICKS_PER_ACTION);
+                consumptionPerDay.put(ResourceType.OAK_PLANKS, consumptionPerDay.get(ResourceType.OAK_PLANKS) + (int) STICK_PLANK_COST);
+            } else {
+                productionPerDay.put(ResourceType.OAK_PLANKS, productionPerDay.get(ResourceType.OAK_PLANKS) + (int) PLANKS_PER_LOG);
+                consumptionPerDay.put(ResourceType.LOG, consumptionPerDay.get(ResourceType.LOG) + 1);
+            }
+            remaining--;
+        }
+    }
+
+    private int projectedPlanks() {
+        return resource(ResourceType.OAK_PLANKS)
+                + productionPerDay(ResourceType.OAK_PLANKS)
+                - consumptionPerDay(ResourceType.OAK_PLANKS);
     }
 
     private void addToolProductionRates(int totalTools) {
@@ -592,6 +666,10 @@ public final class TownState {
 
     private static long breadProducedBy(int workers, SimulationCycle cycle) {
         return cycle.perStep(BAKER_BREAD_PER_WORKER_PER_DAY) * workers;
+    }
+
+    private static long carpenterActionsBy(int workers, SimulationCycle cycle) {
+        return cycle.perStep(CARPENTER_ACTIONS_PER_WORKER_PER_DAY) * workers;
     }
 
     private static int toWhole(long scaled) {

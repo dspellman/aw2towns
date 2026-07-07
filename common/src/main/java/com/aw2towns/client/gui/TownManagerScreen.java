@@ -64,6 +64,8 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
                 TownManagerScreenHandler.BUTTON_MINE_PRIORITY_MINUS, TownManagerScreenHandler.BUTTON_MINE_PRIORITY_PLUS);
         addWorkerButtons(WorkstationType.LUMBER_MILL, TownManagerScreenHandler.BUTTON_LUMBER_MINUS, TownManagerScreenHandler.BUTTON_LUMBER_PLUS,
                 TownManagerScreenHandler.BUTTON_LUMBER_PRIORITY_MINUS, TownManagerScreenHandler.BUTTON_LUMBER_PRIORITY_PLUS);
+        addWorkerButtons(WorkstationType.CARPENTER, TownManagerScreenHandler.BUTTON_CARPENTER_MINUS, TownManagerScreenHandler.BUTTON_CARPENTER_PLUS,
+                TownManagerScreenHandler.BUTTON_CARPENTER_PRIORITY_MINUS, TownManagerScreenHandler.BUTTON_CARPENTER_PRIORITY_PLUS);
         addWorkerButtons(WorkstationType.BLACKSMITH, TownManagerScreenHandler.BUTTON_BLACKSMITH_MINUS, TownManagerScreenHandler.BUTTON_BLACKSMITH_PLUS,
                 TownManagerScreenHandler.BUTTON_BLACKSMITH_PRIORITY_MINUS, TownManagerScreenHandler.BUTTON_BLACKSMITH_PRIORITY_PLUS);
         updateOverviewButtonVisibility();
@@ -353,8 +355,9 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
         return switch (resource) {
             case WHEAT -> "Farm";
             case BREAD -> "Baker";
+            case LOG -> "Lumber Mill";
             case IRON -> "Mine";
-            case OAK_PLANKS -> "Lumber Mill";
+            case OAK_PLANKS, STICK -> "Carpenter";
             case PICKAXE, AXE, HOE, HAMMER -> "Blacksmith";
         };
     }
@@ -362,8 +365,11 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
     private static String consumers(ResourceType resource) {
         return switch (resource) {
             case WHEAT -> "Baker";
+            case LOG -> "Bakers, carpenters";
             case BREAD -> "All workers";
-            case IRON, OAK_PLANKS -> "Blacksmith";
+            case OAK_PLANKS -> "Carpenter";
+            case STICK -> "Blacksmith";
+            case IRON -> "Blacksmith";
             case PICKAXE -> "Mine";
             case AXE -> "Lumber Mill";
             case HOE -> "Farm";

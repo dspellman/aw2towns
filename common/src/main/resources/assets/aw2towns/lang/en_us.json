@@ -23,8 +23,10 @@
   "container.aw2towns.town_manager.flow_tooltip": "Made by: %s; used by: %s",
   "resource.aw2towns.wheat": "Wheat",
   "resource.aw2towns.bread": "Bread",
+  "resource.aw2towns.log": "Logs",
   "resource.aw2towns.iron": "Iron",
   "resource.aw2towns.oak_planks": "Oak Planks",
+  "resource.aw2towns.stick": "Sticks",
   "resource.aw2towns.pickaxe": "Pickaxes",
   "resource.aw2towns.axe": "Axes",
   "resource.aw2towns.hoe": "Hoes",
@@ -33,5 +35,6 @@
   "workstation.aw2towns.baker": "Baker",
   "workstation.aw2towns.mine": "Mine",
   "workstation.aw2towns.lumber_mill": "Lumber Mill",
+  "workstation.aw2towns.carpenter": "Carpenter",
   "workstation.aw2towns.blacksmith": "Blacksmith"
 }

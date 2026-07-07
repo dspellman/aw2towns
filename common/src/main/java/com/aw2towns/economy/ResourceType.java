@@ -6,8 +6,10 @@ import net.minecraft.text.Text;
 public enum ResourceType {
     WHEAT("wheat"),
     BREAD("bread"),
+    LOG("log"),
     IRON("iron"),
     OAK_PLANKS("oak_planks"),
+    STICK("stick"),
     PICKAXE("pickaxe"),
     AXE("axe"),
     HOE("hoe"),
