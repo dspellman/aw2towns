@@ -224,7 +224,7 @@ public final class TownState {
         addDemand(demands, WorkstationType.BAKER, ResourceType.BREAD, bread, null, 0L);
         addDemand(demands, WorkstationType.MINE, ResourceType.BREAD, bread, ResourceType.PICKAXE, tool);
         addDemand(demands, WorkstationType.LUMBER_MILL, ResourceType.BREAD, bread, ResourceType.AXE, tool);
-        addDemand(demands, WorkstationType.BLACKSMITH, ResourceType.BREAD, bread, ResourceType.SWORD, tool);
+        addDemand(demands, WorkstationType.BLACKSMITH, ResourceType.BREAD, bread, ResourceType.HAMMER, tool);
         return demands;
     }
 
@@ -317,6 +317,11 @@ public final class TownState {
     }
 
     private ResourceType toolTargetForProduced(EnumMap<ResourceType, Long> produced) {
+        ResourceType protectedHammer = protectedHammerTarget(raw(ResourceType.HAMMER) + produced.get(ResourceType.HAMMER));
+        if (protectedHammer != null) {
+            return protectedHammer;
+        }
+
         ResourceType bestDeficit = null;
         long bestDeficitAmount = 0L;
         for (ResourceType tool : toolResources()) {
@@ -345,7 +350,16 @@ public final class TownState {
     }
 
     private ResourceType[] toolResources() {
-        return new ResourceType[] {ResourceType.PICKAXE, ResourceType.AXE, ResourceType.HOE, ResourceType.SWORD};
+        return new ResourceType[] {ResourceType.PICKAXE, ResourceType.AXE, ResourceType.HOE, ResourceType.HAMMER};
+    }
+
+    private ResourceType protectedHammerTarget(long availableHammers) {
+        int blacksmiths = workstation(WorkstationType.BLACKSMITH).workers();
+        if (blacksmiths <= 0) {
+            return null;
+        }
+        long target = (long) (blacksmiths + 1) * SCALE;
+        return availableHammers < target ? ResourceType.HAMMER : null;
     }
 
     private void addProduced(EnumMap<ResourceType, Long> produced, ResourceType resource, long base, double factor) {
@@ -425,7 +439,7 @@ public final class TownState {
         addDeficitNeed(needs, WorkstationType.BLACKSMITH, ResourceType.PICKAXE, SMITH_TOOLS_PER_WORKER_PER_DAY);
         addDeficitNeed(needs, WorkstationType.BLACKSMITH, ResourceType.AXE, SMITH_TOOLS_PER_WORKER_PER_DAY);
         addDeficitNeed(needs, WorkstationType.BLACKSMITH, ResourceType.HOE, SMITH_TOOLS_PER_WORKER_PER_DAY);
-        addDeficitNeed(needs, WorkstationType.BLACKSMITH, ResourceType.SWORD, SMITH_TOOLS_PER_WORKER_PER_DAY);
+        addDeficitNeed(needs, WorkstationType.BLACKSMITH, ResourceType.HAMMER, SMITH_TOOLS_PER_WORKER_PER_DAY);
         return needs;
     }
 
@@ -464,7 +478,7 @@ public final class TownState {
         consumptionPerDay.put(ResourceType.PICKAXE, whole(workstation(WorkstationType.MINE).workers() * TOOL_PER_WORKER_PER_DAY));
         consumptionPerDay.put(ResourceType.AXE, whole(workstation(WorkstationType.LUMBER_MILL).workers() * TOOL_PER_WORKER_PER_DAY));
         consumptionPerDay.put(ResourceType.HOE, whole(workstation(WorkstationType.FARM).workers() * TOOL_PER_WORKER_PER_DAY));
-        consumptionPerDay.put(ResourceType.SWORD, whole(workstation(WorkstationType.BLACKSMITH).workers() * TOOL_PER_WORKER_PER_DAY));
+        consumptionPerDay.put(ResourceType.HAMMER, whole(workstation(WorkstationType.BLACKSMITH).workers() * TOOL_PER_WORKER_PER_DAY));
         addToolProductionRates(toolsPerDay);
     }
 
@@ -481,6 +495,11 @@ public final class TownState {
     }
 
     private ResourceType toolTargetForDailyRates() {
+        ResourceType protectedHammer = protectedHammerTarget((long) (resource(ResourceType.HAMMER) + productionPerDay(ResourceType.HAMMER)) * SCALE);
+        if (protectedHammer != null) {
+            return protectedHammer;
+        }
+
         ResourceType bestDeficit = null;
         int bestDeficitAmount = 0;
         for (ResourceType tool : toolResources()) {
@@ -654,7 +673,7 @@ public final class TownState {
             town.resourceRaw(ResourceType.PICKAXE, tools);
             town.resourceRaw(ResourceType.AXE, tools);
             town.resourceRaw(ResourceType.HOE, tools);
-            town.resourceRaw(ResourceType.SWORD, tools);
+            town.resourceRaw(ResourceType.HAMMER, tools);
         }
 
         NbtCompound productionNbt = nbt.getCompound("productionPerDay");

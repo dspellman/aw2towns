@@ -355,7 +355,7 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
             case BREAD -> "Baker";
             case IRON -> "Mine";
             case OAK_PLANKS -> "Lumber Mill";
-            case PICKAXE, AXE, HOE, SWORD -> "Blacksmith";
+            case PICKAXE, AXE, HOE, HAMMER -> "Blacksmith";
         };
     }
 
@@ -367,7 +367,7 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
             case PICKAXE -> "Mine";
             case AXE -> "Lumber Mill";
             case HOE -> "Farm";
-            case SWORD -> "Blacksmith";
+            case HAMMER -> "Blacksmith";
         };
     }
 
