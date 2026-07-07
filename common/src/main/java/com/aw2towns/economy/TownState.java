@@ -18,7 +18,6 @@ public final class TownState {
     public static final int LARGE_STOCKPILE_DAYS = 2;
 
     private static final int TICKS_PER_SECOND = 20;
-    private static final int DEFAULT_PRIORITY = 5;
     private static final long DEFAULT_CAPACITY = 1_000_000_000L * SCALE;
     private static final double BREAD_PER_WORKER_PER_DAY = 1.0D;
     private static final double TOOL_PER_WORKER_PER_DAY = 1.0D;
@@ -164,7 +163,7 @@ public final class TownState {
 
     private void simulateStep(long gameTime, SimulationCycle cycle) {
         refreshDailyRates();
-        autoAssignIdleWorkers();
+        autoBalanceWorkers();
         refreshDailyRates();
         if (!cycle.isDaytime(gameTime)) {
             return;
@@ -449,7 +448,8 @@ public final class TownState {
         consumeIdleFood(cycle);
     }
 
-    private void autoAssignIdleWorkers() {
+    private void autoBalanceWorkers() {
+        trimSurplusWorkers();
         while (unassignedWorkers() > 0) {
             WorkstationType target = bestIdleWorkerTarget();
             if (target == null) {
@@ -458,7 +458,46 @@ public final class TownState {
             TownWorkstationState workstation = workstation(target);
             workstation.setWorkers(workstation.workers() + 1);
             refreshDailyRates();
+            trimSurplusWorkers();
         }
+    }
+
+    private void trimSurplusWorkers() {
+        boolean removed;
+        do {
+            removed = false;
+            for (WorkstationType type : WorkstationType.values()) {
+                if (canUnassignWorker(type)) {
+                    TownWorkstationState workstation = workstation(type);
+                    workstation.setWorkers(workstation.workers() - 1);
+                    refreshDailyRates();
+                    removed = true;
+                }
+            }
+        } while (removed);
+    }
+
+    private boolean canUnassignWorker(WorkstationType type) {
+        TownWorkstationState workstation = workstation(type);
+        if (workstation.workers() <= 0) {
+            return false;
+        }
+
+        workstation.setWorkers(workstation.workers() - 1);
+        refreshDailyRates();
+        boolean covered = !hasBasicDeficit();
+        workstation.setWorkers(workstation.workers() + 1);
+        refreshDailyRates();
+        return covered;
+    }
+
+    private boolean hasBasicDeficit() {
+        for (ResourceType resource : ResourceType.values()) {
+            if (consumptionPerDay(resource) > productionPerDay(resource)) {
+                return true;
+            }
+        }
+        return projectedProducedItemsPerDay() > courierCapacityPerDay();
     }
 
     private WorkstationType bestIdleWorkerTarget() {
@@ -467,29 +506,12 @@ public final class TownState {
         double bestNeed = 0.0D;
         for (WorkstationType type : WorkstationType.values()) {
             double need = needs.get(type);
-            if (need > bestNeed || need == bestNeed && bestDeficit != null
-                    && workstation(type).priority() > workstation(bestDeficit).priority()) {
+            if (need > bestNeed) {
                 bestNeed = need;
                 bestDeficit = type;
             }
         }
-        if (bestDeficit != null && bestNeed > 0.0D) {
-            return bestDeficit;
-        }
-
-        WorkstationType highestPriority = null;
-        for (WorkstationType type : WorkstationType.values()) {
-            if (workstation(type).priority() <= DEFAULT_PRIORITY) {
-                continue;
-            }
-            if (highestPriority == null
-                    || workstation(type).priority() > workstation(highestPriority).priority()
-                    || workstation(type).priority() == workstation(highestPriority).priority()
-                    && workstation(type).workers() < workstation(highestPriority).workers()) {
-                highestPriority = type;
-            }
-        }
-        return highestPriority;
+        return bestNeed > 0.0D ? bestDeficit : null;
     }
 
     private EnumMap<WorkstationType, Double> workstationDeficitNeeds() {
