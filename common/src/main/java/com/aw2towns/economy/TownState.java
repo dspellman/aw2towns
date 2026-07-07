@@ -52,11 +52,11 @@ public final class TownState {
 
     public static TownState starter(long gameTime) {
         TownState town = new TownState("starter", "Prototype Town");
-        town.totalWorkers = 11;
+        town.totalWorkers = 12;
         town.workstation(WorkstationType.FARM).setWorkers(3);
         town.workstation(WorkstationType.MINE).setWorkers(3);
         town.workstation(WorkstationType.LUMBER_MILL).setWorkers(2);
-        town.workstation(WorkstationType.BLACKSMITH).setWorkers(3);
+        town.workstation(WorkstationType.BLACKSMITH).setWorkers(2);
         town.lastSimulatedGameTime = gameTime;
         town.refreshDailyRates();
         return town;
@@ -120,14 +120,14 @@ public final class TownState {
     }
 
     public void resetPrototypeEconomy() {
-        totalWorkers = 11;
+        totalWorkers = 12;
         for (ResourceType resource : ResourceType.values()) {
             resourceRaw(resource, 0L);
         }
         workstation(WorkstationType.FARM).setWorkers(3);
         workstation(WorkstationType.MINE).setWorkers(3);
         workstation(WorkstationType.LUMBER_MILL).setWorkers(2);
-        workstation(WorkstationType.BLACKSMITH).setWorkers(3);
+        workstation(WorkstationType.BLACKSMITH).setWorkers(2);
         refreshDailyRates();
     }
 

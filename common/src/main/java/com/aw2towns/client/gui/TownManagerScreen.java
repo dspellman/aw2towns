@@ -27,16 +27,12 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
     private static final int LIST_Y = 74;
     private static final int LIST_W = 272;
     private static final int LIST_H = 160;
-    private static final int OVERVIEW_WORKERS_Y = 74;
-    private static final int OVERVIEW_WORKERS_H = 72;
-    private static final int OVERVIEW_STATUS_Y = 152;
-    private static final int OVERVIEW_STATUS_H = 84;
-    private static final int OVERVIEW_WORKER_ROW_HEIGHT = 18;
-    private static final int OVERVIEW_STATUS_ROW_HEIGHT = 24;
+    private static final int WORKER_ROW_HEIGHT = 24;
+    private static final int STATUS_ROW_HEIGHT = 24;
 
     private final List<OverviewButton> overviewButtons = new ArrayList<>();
     private Tab currentTab = Tab.OVERVIEW;
-    private int overviewWorkersScroll;
+    private int workersScroll;
     private int overviewStatusScroll;
     private int storageScroll;
     private int productionScroll;
@@ -85,15 +81,18 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         int delta = verticalAmount > 0 ? -1 : 1;
         if (currentTab == Tab.OVERVIEW) {
-            if (isMouseOverPanel(mouseX, mouseY, OVERVIEW_WORKERS_Y, OVERVIEW_WORKERS_H)) {
-                overviewWorkersScroll = clampScroll(overviewWorkersScroll + delta, WorkstationType.values().length,
-                        overviewRows(OVERVIEW_WORKERS_H, OVERVIEW_WORKER_ROW_HEIGHT));
+            if (isMouseOverList(mouseX, mouseY)) {
+                overviewStatusScroll = clampScroll(overviewStatusScroll + delta, WorkstationType.values().length,
+                        visibleRows(STATUS_ROW_HEIGHT));
                 updateOverviewButtonVisibility();
                 return true;
             }
-            if (isMouseOverPanel(mouseX, mouseY, OVERVIEW_STATUS_Y, OVERVIEW_STATUS_H)) {
-                overviewStatusScroll = clampScroll(overviewStatusScroll + delta, WorkstationType.values().length,
-                        overviewRows(OVERVIEW_STATUS_H, OVERVIEW_STATUS_ROW_HEIGHT));
+            return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+        }
+        if (currentTab == Tab.WORKERS) {
+            if (isMouseOverList(mouseX, mouseY)) {
+                workersScroll = clampScroll(workersScroll + delta, WorkstationType.values().length,
+                        visibleRows(WORKER_ROW_HEIGHT));
                 updateOverviewButtonVisibility();
                 return true;
             }
@@ -106,7 +105,7 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
             case STORAGE -> storageScroll = clampScroll(storageScroll + delta);
             case PRODUCTION -> productionScroll = clampScroll(productionScroll + delta);
             case CONSUMPTION -> consumptionScroll = clampScroll(consumptionScroll + delta);
-            case OVERVIEW -> {}
+            case OVERVIEW, WORKERS -> {}
         }
         return true;
     }
@@ -116,12 +115,8 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
         context.fill(x, y, x + backgroundWidth, y + backgroundHeight, PANEL);
         context.drawBorder(x, y, backgroundWidth, backgroundHeight, BORDER);
         context.fill(x + 8, y + 48, x + backgroundWidth - 8, y + 66, PANEL_DARK);
-        if (currentTab == Tab.OVERVIEW) {
-            drawOverviewPanelBackground(context, OVERVIEW_WORKERS_Y, OVERVIEW_WORKERS_H);
-            drawOverviewPanelBackground(context, OVERVIEW_STATUS_Y, OVERVIEW_STATUS_H);
-        } else {
-            context.fill(x + LIST_X, y + LIST_Y, x + LIST_X + LIST_W, y + LIST_Y + LIST_H, PANEL_DARK);
-        }
+        context.fill(x + LIST_X, y + LIST_Y, x + LIST_X + LIST_W, y + LIST_Y + LIST_H, PANEL_DARK);
+        context.drawBorder(x + LIST_X, y + LIST_Y, LIST_W, LIST_H, BORDER);
     }
 
     @Override
@@ -134,6 +129,7 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
 
         switch (currentTab) {
             case OVERVIEW -> drawOverview(context);
+            case WORKERS -> drawWorkerAssignments(context);
             case STORAGE -> drawStorage(context);
             case PRODUCTION -> drawFlowList(context, true);
             case CONSUMPTION -> drawFlowList(context, false);
@@ -160,24 +156,23 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
     }
 
     private void updateOverviewButtonVisibility() {
-        boolean visible = currentTab == Tab.OVERVIEW;
         for (OverviewButton overviewButton : overviewButtons) {
             ButtonWidget button = overviewButton.button();
-            boolean rowVisible = visible && positionOverviewButton(overviewButton);
+            boolean rowVisible = positionOverviewButton(overviewButton);
             button.visible = rowVisible;
             button.active = rowVisible;
         }
     }
 
     private boolean positionOverviewButton(OverviewButton overviewButton) {
-        boolean workerButton = overviewButton.kind() == OverviewButtonKind.WORKER_MINUS
-                || overviewButton.kind() == OverviewButtonKind.WORKER_PLUS;
-        int scroll = workerButton ? overviewWorkersScroll : overviewStatusScroll;
-        int panelY = workerButton ? OVERVIEW_WORKERS_Y : OVERVIEW_STATUS_Y;
-        int panelH = workerButton ? OVERVIEW_WORKERS_H : OVERVIEW_STATUS_H;
-        int rowHeight = workerButton ? OVERVIEW_WORKER_ROW_HEIGHT : OVERVIEW_STATUS_ROW_HEIGHT;
+        boolean workerButton = isWorkerButton(overviewButton);
+        if (workerButton && currentTab != Tab.WORKERS || !workerButton && currentTab != Tab.OVERVIEW) {
+            return false;
+        }
+        int scroll = workerButton ? workersScroll : overviewStatusScroll;
+        int rowHeight = workerButton ? WORKER_ROW_HEIGHT : STATUS_ROW_HEIGHT;
         int row = overviewButton.type().ordinal() - scroll;
-        if (row < 0 || row >= overviewRows(panelH, rowHeight)) {
+        if (row < 0 || row >= visibleRows(rowHeight)) {
             return false;
         }
 
@@ -185,8 +180,13 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
             case WORKER_MINUS, PRIORITY_MINUS -> 216;
             case WORKER_PLUS, PRIORITY_PLUS -> 240;
         };
-        overviewButton.button().setPosition(x + buttonX, y + panelY + 18 + row * rowHeight);
+        overviewButton.button().setPosition(x + buttonX, y + LIST_Y + 18 + row * rowHeight);
         return true;
+    }
+
+    private boolean isWorkerButton(OverviewButton overviewButton) {
+        return overviewButton.kind() == OverviewButtonKind.WORKER_MINUS
+                || overviewButton.kind() == OverviewButtonKind.WORKER_PLUS;
     }
 
     private void click(int buttonId) {
@@ -196,19 +196,17 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
     }
 
     private void drawOverview(DrawContext context) {
-        drawWorkerAssignments(context);
         drawStatusRows(context);
     }
 
     private void drawWorkerAssignments(DrawContext context) {
         drawOverviewPanelHeader(context, Text.translatable("container.aw2towns.town_manager.work_assignments"),
-                OVERVIEW_WORKERS_Y, OVERVIEW_WORKERS_H, overviewWorkersScroll,
-                overviewRows(OVERVIEW_WORKERS_H, OVERVIEW_WORKER_ROW_HEIGHT));
+                workersScroll, visibleRows(WORKER_ROW_HEIGHT));
         int row = 0;
-        for (int i = overviewWorkersScroll; i < WorkstationType.values().length
-                && row < overviewRows(OVERVIEW_WORKERS_H, OVERVIEW_WORKER_ROW_HEIGHT); i++, row++) {
+        for (int i = workersScroll; i < WorkstationType.values().length
+                && row < visibleRows(WORKER_ROW_HEIGHT); i++, row++) {
             WorkstationType type = WorkstationType.values()[i];
-            int rowY = OVERVIEW_WORKERS_Y + 18 + row * OVERVIEW_WORKER_ROW_HEIGHT;
+            int rowY = LIST_Y + 18 + row * WORKER_ROW_HEIGHT;
             context.drawText(textRenderer, type.displayName(), LIST_X + 6, rowY + 4, workstationColor(type), false);
             context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.worker_count", handler.workers(type)),
                     LIST_X + 112, rowY + 4, MUTED, false);
@@ -217,13 +215,12 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
 
     private void drawStatusRows(DrawContext context) {
         drawOverviewPanelHeader(context, Text.translatable("container.aw2towns.town_manager.priorities_status"),
-                OVERVIEW_STATUS_Y, OVERVIEW_STATUS_H, overviewStatusScroll,
-                overviewRows(OVERVIEW_STATUS_H, OVERVIEW_STATUS_ROW_HEIGHT));
+                overviewStatusScroll, visibleRows(STATUS_ROW_HEIGHT));
         int row = 0;
         for (int i = overviewStatusScroll; i < WorkstationType.values().length
-                && row < overviewRows(OVERVIEW_STATUS_H, OVERVIEW_STATUS_ROW_HEIGHT); i++, row++) {
+                && row < visibleRows(STATUS_ROW_HEIGHT); i++, row++) {
             WorkstationType type = WorkstationType.values()[i];
-            drawStatusRow(context, type, OVERVIEW_STATUS_Y + 18 + row * OVERVIEW_STATUS_ROW_HEIGHT);
+            drawStatusRow(context, type, LIST_Y + 18 + row * STATUS_ROW_HEIGHT);
         }
     }
 
@@ -240,14 +237,9 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
         }
     }
 
-    private void drawOverviewPanelBackground(DrawContext context, int panelY, int panelH) {
-        context.fill(x + LIST_X, y + panelY, x + LIST_X + LIST_W, y + panelY + panelH, PANEL_DARK);
-        context.drawBorder(x + LIST_X, y + panelY, LIST_W, panelH, BORDER);
-    }
-
-    private void drawOverviewPanelHeader(DrawContext context, Text header, int panelY, int panelH, int scroll, int visibleRows) {
-        context.drawText(textRenderer, header, LIST_X + 6, panelY + 6, TEXT, false);
-        drawScrollBar(context, panelY, panelH, scroll, WorkstationType.values().length, visibleRows);
+    private void drawOverviewPanelHeader(DrawContext context, Text header, int scroll, int visibleRows) {
+        context.drawText(textRenderer, header, LIST_X + 6, LIST_Y + 6, TEXT, false);
+        drawScrollBar(context, LIST_Y, LIST_H, scroll, WorkstationType.values().length, visibleRows);
     }
 
     private void drawStorage(DrawContext context) {
@@ -334,16 +326,16 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
         return (LIST_H - 20) / ROW_HEIGHT;
     }
 
+    private int visibleRows(int rowHeight) {
+        return (LIST_H - 20) / rowHeight;
+    }
+
     private int clampScroll(int scroll) {
         return clampScroll(scroll, ResourceType.values().length, visibleRows());
     }
 
     private int clampScroll(int scroll, int rows, int visibleRows) {
         return Math.max(0, Math.min(Math.max(0, rows - visibleRows), scroll));
-    }
-
-    private int overviewRows(int panelH, int rowHeight) {
-        return (panelH - 20) / rowHeight;
     }
 
     private void drawScrollBar(DrawContext context, int panelY, int panelH, int scroll, int rows, int visibleRows) {
@@ -397,10 +389,11 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
     }
 
     private enum Tab {
-        OVERVIEW("Overview", 64),
-        PRODUCTION("Production", 70),
-        CONSUMPTION("Use", 42),
-        STORAGE("Storage", 60);
+        OVERVIEW("Overview", 56),
+        WORKERS("Workers", 52),
+        PRODUCTION("Production", 66),
+        CONSUMPTION("Use", 36),
+        STORAGE("Storage", 54);
 
         private final String label;
         private final int width;
