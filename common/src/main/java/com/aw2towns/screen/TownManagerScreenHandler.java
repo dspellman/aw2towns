@@ -67,7 +67,8 @@ public class TownManagerScreenHandler extends ScreenHandler {
     private static final int IDX_STORAGE = IDX_SHORTAGES + WORKSTATION_COUNT;
     private static final int IDX_PRODUCTION = IDX_STORAGE + RESOURCE_COUNT;
     private static final int IDX_CONSUMPTION = IDX_PRODUCTION + RESOURCE_COUNT;
-    private static final int IDX_WORKER_IDS = IDX_CONSUMPTION + RESOURCE_COUNT;
+    private static final int IDX_STOCKPILE_GOALS = IDX_CONSUMPTION + RESOURCE_COUNT;
+    private static final int IDX_WORKER_IDS = IDX_STOCKPILE_GOALS + RESOURCE_COUNT;
     private static final int IDX_WORKER_ASSIGNMENTS = IDX_WORKER_IDS + MAX_SYNCED_WORKERS;
     public static final int DATA_COUNT = IDX_WORKER_ASSIGNMENTS + MAX_SYNCED_WORKERS;
 
@@ -175,6 +176,10 @@ public class TownManagerScreenHandler extends ScreenHandler {
         return productionPerDay(resource) - consumptionPerDay(resource);
     }
 
+    public int stockpileGoal(ResourceType resource) {
+        return properties.get(IDX_STOCKPILE_GOALS + resource.ordinal());
+    }
+
     public boolean hasLargeEnoughStockpile(ResourceType resource) {
         int consumption = consumptionPerDay(resource);
         return consumption <= 0 || resource(resource) >= consumption * TownState.LARGE_STOCKPILE_DAYS;
@@ -253,6 +258,9 @@ public class TownManagerScreenHandler extends ScreenHandler {
                 }
                 if (index >= IDX_CONSUMPTION && index < IDX_CONSUMPTION + RESOURCE_COUNT) {
                     return town.consumptionPerDay(resource(index - IDX_CONSUMPTION));
+                }
+                if (index >= IDX_STOCKPILE_GOALS && index < IDX_STOCKPILE_GOALS + RESOURCE_COUNT) {
+                    return town.stockpileGoal(resource(index - IDX_STOCKPILE_GOALS));
                 }
                 if (index >= IDX_WORKER_IDS && index < IDX_WORKER_IDS + MAX_SYNCED_WORKERS) {
                     return town.workerId(index - IDX_WORKER_IDS);

@@ -16,7 +16,7 @@ import net.minecraft.world.World;
 public final class TownSavedData extends PersistentState {
 
     private static final String NAME = AW2Towns.MOD_ID + "_towns";
-    private static final int DATA_VERSION = 8;
+    private static final int DATA_VERSION = 9;
     private static final Type<TownSavedData> TYPE = new Type<>(
             TownSavedData::new,
             TownSavedData::readNbt,
@@ -90,6 +90,12 @@ public final class TownSavedData extends PersistentState {
         if (dataVersion < 8) {
             for (TownState town : data.towns) {
                 town.migrateWorkersFromWorkstationCounts();
+            }
+            data.markDirty();
+        }
+        if (dataVersion < 9) {
+            for (TownState town : data.towns) {
+                town.migrateStockpileGoals();
             }
             data.markDirty();
         }

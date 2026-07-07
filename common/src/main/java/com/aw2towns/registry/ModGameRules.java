@@ -4,8 +4,8 @@ import net.minecraft.world.GameRules;
 
 public final class ModGameRules {
 
-    public static final int DEFAULT_TEST_DAY_SECONDS = 60;
-    public static final int DEFAULT_TEST_NIGHT_SECONDS = 60;
+    public static final int DEFAULT_TEST_DAY_SECONDS = 10;
+    public static final int DEFAULT_TEST_NIGHT_SECONDS = 10;
     public static final int REAL_DAY_SECONDS = 600;
     public static final int REAL_NIGHT_SECONDS = 600;
 

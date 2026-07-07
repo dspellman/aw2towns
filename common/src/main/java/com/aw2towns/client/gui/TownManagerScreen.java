@@ -350,17 +350,19 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
             ResourceType resource = ResourceType.values()[i];
             int yPos = LIST_Y + 18 + row * ROW_HEIGHT;
             context.drawText(textRenderer, resource.displayName(), LIST_X + 6, yPos, resourceColor(resource), false);
-            context.drawText(textRenderer, Integer.toString(handler.productionPerDay(resource)), LIST_X + 104, yPos, resourceColor(resource), false);
-            context.drawText(textRenderer, Integer.toString(handler.consumptionPerDay(resource)), LIST_X + 150, yPos, resourceColor(resource), false);
-            context.drawText(textRenderer, Integer.toString(handler.resource(resource)), LIST_X + 200, yPos, resourceColor(resource), false);
+            context.drawText(textRenderer, Integer.toString(handler.stockpileGoal(resource)), LIST_X + 94, yPos, resourceColor(resource), false);
+            context.drawText(textRenderer, Integer.toString(handler.productionPerDay(resource)), LIST_X + 132, yPos, resourceColor(resource), false);
+            context.drawText(textRenderer, Integer.toString(handler.consumptionPerDay(resource)), LIST_X + 172, yPos, resourceColor(resource), false);
+            context.drawText(textRenderer, Integer.toString(handler.resource(resource)), LIST_X + 214, yPos, resourceColor(resource), false);
         }
     }
 
     private void drawProductionHeader(DrawContext context) {
         context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.product"), LIST_X + 6, LIST_Y + 6, TEXT, false);
-        context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.made"), LIST_X + 104, LIST_Y + 6, TEXT, false);
-        context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.used"), LIST_X + 150, LIST_Y + 6, TEXT, false);
-        context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.stored"), LIST_X + 200, LIST_Y + 6, TEXT, false);
+        context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.goal"), LIST_X + 94, LIST_Y + 6, TEXT, false);
+        context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.made"), LIST_X + 132, LIST_Y + 6, TEXT, false);
+        context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.used"), LIST_X + 172, LIST_Y + 6, TEXT, false);
+        context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.stored"), LIST_X + 214, LIST_Y + 6, TEXT, false);
     }
 
     private void drawDraggedWorker(DrawContext context, int mouseX, int mouseY) {
@@ -476,10 +478,10 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
     }
 
     private int resourceColor(ResourceType resource) {
-        if (handler.productionPerDay(resource) >= handler.consumptionPerDay(resource)) {
+        if (handler.resource(resource) >= handler.stockpileGoal(resource)) {
             return GOOD;
         }
-        return handler.hasLargeEnoughStockpile(resource) ? WARN : BAD;
+        return handler.productionPerDay(resource) > 0 ? WARN : BAD;
     }
 
     private boolean isMouseOverList(double mouseX, double mouseY) {

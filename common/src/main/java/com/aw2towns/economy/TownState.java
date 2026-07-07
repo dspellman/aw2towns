@@ -1,6 +1,7 @@
 package com.aw2towns.economy;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -11,7 +12,6 @@ import net.minecraft.nbt.NbtList;
 public final class TownState {
 
     public static final int SCALE = 1000;
-    public static final int PRODUCTION_STEPS_PER_DAY = 5;
     public static final int STATUS_BLOCKED_MAX = 30;
     public static final int STATUS_PARTIAL_MAX = 89;
     public static final int LARGE_STOCKPILE_DAYS = 2;
@@ -19,6 +19,7 @@ public final class TownState {
     public static final int UNASSIGNED_WORKER_ASSIGNMENT = -1;
 
     private static final int TICKS_PER_SECOND = 20;
+    private static final int DEFAULT_STOCKPILE_GOAL = 1;
     private static final long DEFAULT_CAPACITY = 1_000_000_000L * SCALE;
     private static final double BREAD_PER_WORKER_PER_DAY = 1.0D;
     private static final double TOOL_PER_WORKER_PER_DAY = 1.0D;
@@ -46,6 +47,7 @@ public final class TownState {
     private int nextWorkerId = 1;
     private final List<TownWorker> townWorkers = new ArrayList<>();
     private final EnumMap<ResourceType, Long> storage = new EnumMap<>(ResourceType.class);
+    private final EnumMap<ResourceType, Integer> stockpileGoals = new EnumMap<>(ResourceType.class);
     private final EnumMap<ResourceType, Integer> productionPerDay = new EnumMap<>(ResourceType.class);
     private final EnumMap<ResourceType, Integer> consumptionPerDay = new EnumMap<>(ResourceType.class);
     private final EnumMap<WorkstationType, TownWorkstationState> workstations = new EnumMap<>(WorkstationType.class);
@@ -55,6 +57,7 @@ public final class TownState {
         this.name = name;
         for (ResourceType resource : ResourceType.values()) {
             storage.put(resource, 0L);
+            stockpileGoals.put(resource, DEFAULT_STOCKPILE_GOAL);
             productionPerDay.put(resource, 0);
             consumptionPerDay.put(resource, 0);
         }
@@ -127,15 +130,11 @@ public final class TownState {
     }
 
     public int transportCapacityPerStep() {
-        return whole(COURIER_ITEMS_PER_WORKER_PER_DAY * workstation(WorkstationType.COURIER).workers()
-                / PRODUCTION_STEPS_PER_DAY);
+        return 0;
     }
 
     public int transportRemaining() {
-        if (lastTransportCapacity <= 0) {
-            return transportCapacityPerStep();
-        }
-        return toWhole(lastTransportRemaining);
+        return 0;
     }
 
     public int resource(ResourceType resource) {
@@ -152,6 +151,10 @@ public final class TownState {
 
     public int netPerDay(ResourceType resource) {
         return productionPerDay(resource) - consumptionPerDay(resource);
+    }
+
+    public int stockpileGoal(ResourceType resource) {
+        return stockpileGoals.get(resource);
     }
 
     public TownWorkstationState workstation(WorkstationType type) {
@@ -226,6 +229,7 @@ public final class TownState {
         totalWorkers = 17;
         for (ResourceType resource : ResourceType.values()) {
             resourceRaw(resource, 0L);
+            stockpileGoals.put(resource, DEFAULT_STOCKPILE_GOAL);
         }
         workstation(WorkstationType.FARM).setWorkers(4);
         workstation(WorkstationType.BAKER).setWorkers(2);
@@ -243,66 +247,249 @@ public final class TownState {
             lastSimulatedGameTime = gameTime;
             return;
         }
-        long stepTicks = cycle.stepTicks();
+        if (gameTime < lastSimulatedGameTime) {
+            lastSimulatedGameTime = gameTime;
+            return;
+        }
+        long lastCycle = cycle.cycleIndex(lastSimulatedGameTime);
+        long currentCycle = cycle.cycleIndex(gameTime);
         int steps = 0;
-        while (gameTime - lastSimulatedGameTime >= stepTicks && steps < 24) {
-            simulateStep(lastSimulatedGameTime, cycle);
-            lastSimulatedGameTime += stepTicks;
+        while (lastCycle < currentCycle && steps < 24) {
+            simulateDay();
+            lastCycle++;
             steps++;
         }
-        if (gameTime - lastSimulatedGameTime > stepTicks * 24L) {
-            lastSimulatedGameTime = gameTime;
+        lastSimulatedGameTime = gameTime;
+    }
+
+    private void simulateDay() {
+        clearRates();
+        resetWorkstations();
+        lastTransportCapacity = 0L;
+        lastTransportRemaining = 0L;
+
+        DailyWorkPlan plan = new DailyWorkPlan();
+        consumeDailyPersonalInputs(plan);
+        List<ResourceType> priorities = dailyProductionPriorities();
+        for (ResourceType resource : priorities) {
+            assignProductionFor(resource, plan);
+        }
+        for (ResourceType resource : ResourceType.values()) {
+            long produced = plan.produced.get(resource);
+            if (produced > 0) {
+                add(resource, produced);
+            }
+            productionPerDay.put(resource, toWhole(produced));
+        }
+        updateWorkstationProductivity(plan);
+    }
+
+    private void consumeDailyPersonalInputs(DailyWorkPlan plan) {
+        boolean fedAll = consumePersonalInput(ResourceType.BREAD, totalWorkers(), plan, null);
+        if (!fedAll) {
+            for (WorkstationType type : WorkstationType.values()) {
+                if (workers(type) > 0) {
+                    addShortage(type, ResourceType.BREAD);
+                }
+            }
+        }
+        consumeToolInputs(WorkstationType.FARM, ResourceType.HOE, plan);
+        consumeToolInputs(WorkstationType.MINE, ResourceType.PICKAXE, plan);
+        consumeToolInputs(WorkstationType.LUMBER_MILL, ResourceType.AXE, plan);
+        consumeToolInputs(WorkstationType.BLACKSMITH, ResourceType.HAMMER, plan);
+        for (ResourceType resource : ResourceType.values()) {
+            incrementGoalIfEmpty(resource, plan);
         }
     }
 
-    private void simulateStep(long gameTime, SimulationCycle cycle) {
-        refreshDailyRates();
-        long courierCapacity = courierTransportBy(workstation(WorkstationType.COURIER).workers(), cycle);
-        lastTransportCapacity = courierCapacity;
-        lastTransportRemaining = courierCapacity;
-        if (!cycle.isDaytime(gameTime)) {
+    private void consumeToolInputs(WorkstationType type, ResourceType tool, DailyWorkPlan plan) {
+        int workers = workers(type);
+        for (int i = 0; i < workers; i++) {
+            boolean consumed = consumePersonalInput(tool, 1, plan, type);
+            if (type == WorkstationType.FARM || type == WorkstationType.MINE || type == WorkstationType.LUMBER_MILL) {
+                if (consumed) {
+                    plan.tooledWorkers.put(type, plan.tooledWorkers.get(type) + 1);
+                } else {
+                    plan.bareHandWorkers.put(type, plan.bareHandWorkers.get(type) + 1);
+                }
+            }
+        }
+    }
+
+    private boolean consumePersonalInput(ResourceType resource, int amount, DailyWorkPlan plan, WorkstationType type) {
+        if (amount <= 0) {
+            return true;
+        }
+        long needed = (long) amount * SCALE;
+        long consumed = consumeAvailable(resource, needed, plan);
+        if (consumed < needed && type != null) {
+            addShortage(type, resource);
+        }
+        if (raw(resource) == 0L) {
+            incrementGoalIfEmpty(resource, plan);
+        }
+        return consumed >= needed;
+    }
+
+    private List<ResourceType> dailyProductionPriorities() {
+        List<ResourceType> resources = new ArrayList<>(List.of(ResourceType.values()));
+        resources.sort(Comparator
+                .comparingDouble((ResourceType resource) -> priorityFor(resource))
+                .reversed()
+                .thenComparingInt(Enum::ordinal));
+        return resources;
+    }
+
+    private double priorityFor(ResourceType resource) {
+        return stockpileGoal(resource) / (1.0D + resource(resource));
+    }
+
+    private void assignProductionFor(ResourceType resource, DailyWorkPlan plan) {
+        while (raw(resource) + plan.produced.get(resource) < (long) stockpileGoal(resource) * SCALE) {
+            ProductionRecipe recipe = recipeFor(resource, plan);
+            if (recipe == null) {
+                return;
+            }
+            if (!hasRecipeInputs(recipe)) {
+                addShortage(recipe.workstation(), recipe.inputs());
+                return;
+            }
+            consumeRecipeInputs(recipe, plan);
+            plan.availableWorkers.put(recipe.workstation(), plan.availableWorkers.get(recipe.workstation()) - 1);
+            plan.assignedWorkers.put(recipe.workstation(), plan.assignedWorkers.get(recipe.workstation()) + 1);
+            plan.produced.put(resource, plan.produced.get(resource) + recipe.output());
+        }
+    }
+
+    private ProductionRecipe recipeFor(ResourceType resource, DailyWorkPlan plan) {
+        return switch (resource) {
+            case WHEAT -> baseResourceRecipe(resource, WorkstationType.FARM, plan);
+            case IRON -> baseResourceRecipe(resource, WorkstationType.MINE, plan);
+            case LOG -> baseResourceRecipe(resource, WorkstationType.LUMBER_MILL, plan);
+            case BREAD -> workerRecipe(plan, WorkstationType.BAKER, resource, whole(BAKER_BREAD_PER_WORKER_PER_DAY),
+                    input(ResourceType.WHEAT, whole(BAKER_BREAD_PER_WORKER_PER_DAY) * BREAD_WHEAT_COST),
+                    inputScaled(ResourceType.LOG, Math.round(whole(BAKER_BREAD_PER_WORKER_PER_DAY) * SCALE / (double) BREAD_LOG_COST_DIVISOR)));
+            case OAK_PLANKS -> workerRecipe(plan, WorkstationType.CARPENTER, resource, whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY * PLANKS_PER_LOG),
+                    input(ResourceType.LOG, whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY)));
+            case STICK -> workerRecipe(plan, WorkstationType.CARPENTER, resource, whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY * STICKS_PER_ACTION),
+                    input(ResourceType.OAK_PLANKS, whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY * STICK_PLANK_COST)));
+            case PICKAXE, AXE, HOE, HAMMER -> workerRecipe(plan, WorkstationType.BLACKSMITH, resource, whole(SMITH_TOOLS_PER_WORKER_PER_DAY),
+                    input(ResourceType.IRON, whole(SMITH_TOOLS_PER_WORKER_PER_DAY * TOOL_IRON_COST)),
+                    input(ResourceType.STICK, whole(SMITH_TOOLS_PER_WORKER_PER_DAY * TOOL_STICK_COST)));
+        };
+    }
+
+    private ProductionRecipe baseResourceRecipe(ResourceType resource, WorkstationType workstation, DailyWorkPlan plan) {
+        if (plan.availableWorkers.get(workstation) <= 0) {
+            return null;
+        }
+        if (plan.tooledWorkers.get(workstation) > 0) {
+            plan.tooledWorkers.put(workstation, plan.tooledWorkers.get(workstation) - 1);
+            return workerRecipe(plan, workstation, resource, baseOutputFor(workstation));
+        }
+        if (plan.bareHandWorkers.get(workstation) > 0) {
+            plan.bareHandWorkers.put(workstation, plan.bareHandWorkers.get(workstation) - 1);
+            return workerRecipe(plan, workstation, resource, 3);
+        }
+        return null;
+    }
+
+    private int baseOutputFor(WorkstationType workstation) {
+        return switch (workstation) {
+            case FARM -> whole(FARM_WHEAT_PER_WORKER_PER_DAY);
+            case MINE -> whole(MINE_IRON_PER_WORKER_PER_DAY);
+            case LUMBER_MILL -> whole(LUMBER_LOGS_PER_WORKER_PER_DAY);
+            default -> 0;
+        };
+    }
+
+    private ProductionRecipe workerRecipe(DailyWorkPlan plan, WorkstationType workstation, ResourceType output,
+                                          int outputAmount, RecipeInput... inputs) {
+        if (plan.availableWorkers.get(workstation) <= 0) {
+            return null;
+        }
+        return new ProductionRecipe(workstation, (long) outputAmount * SCALE, List.of(inputs));
+    }
+
+    private RecipeInput input(ResourceType resource, long amount) {
+        return new RecipeInput(resource, amount * SCALE);
+    }
+
+    private RecipeInput inputScaled(ResourceType resource, long amount) {
+        return new RecipeInput(resource, amount);
+    }
+
+    private boolean hasRecipeInputs(ProductionRecipe recipe) {
+        if (recipe == null) {
+            return false;
+        }
+        for (RecipeInput input : recipe.inputs()) {
+            if (raw(input.resource()) < input.amount()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void consumeRecipeInputs(ProductionRecipe recipe, DailyWorkPlan plan) {
+        for (RecipeInput input : recipe.inputs()) {
+            long consumed = consumeAvailable(input.resource(), input.amount(), plan);
+            if (consumed < input.amount()) {
+                addShortage(recipe.workstation(), input.resource());
+            }
+            if (raw(input.resource()) == 0L) {
+                incrementGoalIfEmpty(input.resource(), plan);
+            }
+        }
+    }
+
+    private long consumeAvailable(ResourceType resource, long amount, DailyWorkPlan plan) {
+        long consumed = Math.min(raw(resource), Math.max(0L, amount));
+        consume(resource, consumed);
+        if (consumed > 0) {
+            plan.consumed.put(resource, plan.consumed.get(resource) + consumed);
+            consumptionPerDay.put(resource, toWhole(plan.consumed.get(resource)));
+        }
+        return consumed;
+    }
+
+    private void incrementGoalIfEmpty(ResourceType resource, DailyWorkPlan plan) {
+        if (raw(resource) > 0L || plan.goalIncremented.get(resource)) {
             return;
         }
-        resetWorkstations();
-        TransportLoad transport = new TransportLoad(courierCapacity);
+        stockpileGoals.put(resource, stockpileGoal(resource) + 1);
+        plan.goalIncremented.put(resource, true);
+    }
 
-        produceBasicWorkers(WorkstationType.FARM, ResourceType.WHEAT, cycle.perStep(FARM_WHEAT_PER_WORKER_PER_DAY), transport);
-        produceBasicWorkers(WorkstationType.MINE, ResourceType.IRON, cycle.perStep(MINE_IRON_PER_WORKER_PER_DAY), transport);
-        produceBasicWorkers(WorkstationType.LUMBER_MILL, ResourceType.LOG, cycle.perStep(LUMBER_LOGS_PER_WORKER_PER_DAY), transport);
-
-        processCarpenter(cycle, transport);
-
-        WorkDemand bakerDemand = buildBakerDemand(cycle, transport);
-        if (bakerDemand != null) {
-            allocateInputs(List.of(bakerDemand));
-            int productivity = percent(bakerDemand.inputFactor);
-            TownWorkstationState baker = workstation(WorkstationType.BAKER);
-            baker.setProductivityPercent(productivity);
-            baker.setShortageFlags(shortageFlags(bakerDemand));
-            EnumMap<ResourceType, Long> bakerProduced = emptyResourceMap();
-            produceFor(WorkstationType.BAKER, bakerDemand.workers, bakerDemand.inputFactor, bakerProduced, cycle);
-            addProducedToStorage(bakerProduced, transport);
+    private void addShortage(WorkstationType type, ResourceType resource) {
+        if (type == null) {
+            return;
         }
+        TownWorkstationState workstation = workstation(type);
+        workstation.setShortageFlags(workstation.shortageFlags() | (1 << resource.ordinal()));
+    }
 
-        WorkDemand smithDemand = buildBlacksmithDemand(cycle, transport);
-        if (smithDemand != null) {
-            allocateInputs(List.of(smithDemand));
-            int productivity = percent(smithDemand.inputFactor);
-            TownWorkstationState blacksmith = workstation(WorkstationType.BLACKSMITH);
-            blacksmith.setProductivityPercent(productivity);
-            blacksmith.setShortageFlags(shortageFlags(smithDemand));
-            EnumMap<ResourceType, Long> smithProduced = emptyResourceMap();
-            produceFor(WorkstationType.BLACKSMITH, smithDemand.workers, smithDemand.inputFactor, smithProduced, cycle);
-            addProducedToStorage(smithProduced, transport);
+    private void addShortage(WorkstationType type, List<RecipeInput> inputs) {
+        for (RecipeInput input : inputs) {
+            addShortage(type, input.resource());
         }
+    }
 
-        TownWorkstationState courier = workstation(WorkstationType.COURIER);
-        courier.setProductivityPercent(transport.productivityPercent());
-        courier.setShortageFlags(0);
-        lastTransportCapacity = transport.capacity();
-        lastTransportRemaining = transport.remaining();
-
-        consumeDailyUpkeep(cycle);
+    private void updateWorkstationProductivity(DailyWorkPlan plan) {
+        for (WorkstationType type : WorkstationType.values()) {
+            TownWorkstationState workstation = workstation(type);
+            if (workstation.workers() <= 0) {
+                workstation.setProductivityPercent(0);
+                continue;
+            }
+            if (workstation.shortageFlags() != 0 && plan.assignedWorkers.get(type) <= 0) {
+                workstation.setProductivityPercent(0);
+            } else if (workstation.shortageFlags() != 0) {
+                workstation.setProductivityPercent(50);
+            } else {
+                workstation.setProductivityPercent(100);
+            }
+        }
     }
 
     private WorkDemand buildBlacksmithDemand(SimulationCycle cycle, TransportLoad transport) {
@@ -566,25 +753,7 @@ public final class TownState {
     }
 
     private void refreshDailyRates() {
-        clearRates();
-        productionPerDay.put(ResourceType.WHEAT, whole(FARM_WHEAT_PER_WORKER_PER_DAY * workstation(WorkstationType.FARM).workers()));
-        int breadPerDay = whole(BAKER_BREAD_PER_WORKER_PER_DAY * workstation(WorkstationType.BAKER).workers());
-        productionPerDay.put(ResourceType.BREAD, breadPerDay);
-        productionPerDay.put(ResourceType.IRON, whole(MINE_IRON_PER_WORKER_PER_DAY * workstation(WorkstationType.MINE).workers()));
-        productionPerDay.put(ResourceType.LOG, whole(LUMBER_LOGS_PER_WORKER_PER_DAY * workstation(WorkstationType.LUMBER_MILL).workers()));
-
-        int toolsPerDay = whole(SMITH_TOOLS_PER_WORKER_PER_DAY * workstation(WorkstationType.BLACKSMITH).workers());
-        consumptionPerDay.put(ResourceType.WHEAT, (int) (breadPerDay * BREAD_WHEAT_COST));
-        consumptionPerDay.put(ResourceType.LOG, (int) Math.ceil(breadPerDay / (double) BREAD_LOG_COST_DIVISOR));
-        consumptionPerDay.put(ResourceType.BREAD, whole(totalWorkers * BREAD_PER_WORKER_PER_DAY));
-        consumptionPerDay.put(ResourceType.IRON, (int) (toolsPerDay * TOOL_IRON_COST));
-        consumptionPerDay.put(ResourceType.STICK, (int) (toolsPerDay * TOOL_STICK_COST));
-        consumptionPerDay.put(ResourceType.PICKAXE, whole(workstation(WorkstationType.MINE).workers() * TOOL_PER_WORKER_PER_DAY));
-        consumptionPerDay.put(ResourceType.AXE, whole(workstation(WorkstationType.LUMBER_MILL).workers() * TOOL_PER_WORKER_PER_DAY));
-        consumptionPerDay.put(ResourceType.HOE, whole(workstation(WorkstationType.FARM).workers() * TOOL_PER_WORKER_PER_DAY));
-        consumptionPerDay.put(ResourceType.HAMMER, whole(workstation(WorkstationType.BLACKSMITH).workers() * TOOL_PER_WORKER_PER_DAY));
-        addCarpenterProductionRates(whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY * workstation(WorkstationType.CARPENTER).workers()));
-        addToolProductionRates(toolsPerDay);
+        // Made/Used now report the last completed economic day, not projected rates.
     }
 
     private int projectedProducedItemsPerDay() {
@@ -776,6 +945,15 @@ public final class TownState {
         refreshDailyRates();
     }
 
+    public void migrateStockpileGoals() {
+        for (ResourceType resource : ResourceType.values()) {
+            stockpileGoals.putIfAbsent(resource, DEFAULT_STOCKPILE_GOAL);
+            if (stockpileGoals.get(resource) <= 0) {
+                stockpileGoals.put(resource, DEFAULT_STOCKPILE_GOAL);
+            }
+        }
+    }
+
     private void createWorkersFromWorkstationCounts() {
         townWorkers.clear();
         nextWorkerId = 1;
@@ -848,7 +1026,7 @@ public final class TownState {
 
     public record SimulationCycle(int dayTicks, int nightTicks) {
         public static SimulationCycle ofSeconds(int daySeconds, int nightSeconds) {
-            int day = Math.max(PRODUCTION_STEPS_PER_DAY, daySeconds * TICKS_PER_SECOND);
+            int day = Math.max(1, daySeconds * TICKS_PER_SECOND);
             int night = Math.max(0, nightSeconds * TICKS_PER_SECOND);
             return new SimulationCycle(day, night);
         }
@@ -860,11 +1038,15 @@ public final class TownState {
         }
 
         private long perStep(double amountPerDay) {
-            return Math.round(amountPerDay * SCALE / PRODUCTION_STEPS_PER_DAY);
+            return Math.round(amountPerDay * SCALE);
         }
 
         private long stepTicks() {
-            return Math.max(1L, Math.round(dayTicks / (double) PRODUCTION_STEPS_PER_DAY));
+            return Math.max(1, dayTicks + nightTicks);
+        }
+
+        private long cycleIndex(long gameTime) {
+            return Math.floorDiv(gameTime, stepTicks());
         }
     }
 
@@ -884,12 +1066,15 @@ public final class TownState {
 
         NbtCompound productionNbt = new NbtCompound();
         NbtCompound consumptionNbt = new NbtCompound();
+        NbtCompound stockpileGoalNbt = new NbtCompound();
         for (ResourceType resource : ResourceType.values()) {
             productionNbt.putInt(resource.id(), productionPerDay.get(resource));
             consumptionNbt.putInt(resource.id(), consumptionPerDay.get(resource));
+            stockpileGoalNbt.putInt(resource.id(), stockpileGoals.get(resource));
         }
         nbt.put("productionPerDay", productionNbt);
         nbt.put("consumptionPerDay", consumptionNbt);
+        nbt.put("stockpileGoals", stockpileGoalNbt);
 
         NbtList workstationList = new NbtList();
         for (TownWorkstationState workstation : workstations.values()) {
@@ -930,9 +1115,13 @@ public final class TownState {
 
         NbtCompound productionNbt = nbt.getCompound("productionPerDay");
         NbtCompound consumptionNbt = nbt.getCompound("consumptionPerDay");
+        NbtCompound stockpileGoalNbt = nbt.getCompound("stockpileGoals");
         for (ResourceType resource : ResourceType.values()) {
             town.productionPerDay.put(resource, productionNbt.getInt(resource.id()));
             town.consumptionPerDay.put(resource, consumptionNbt.getInt(resource.id()));
+            if (stockpileGoalNbt.contains(resource.id())) {
+                town.stockpileGoals.put(resource, Math.max(1, stockpileGoalNbt.getInt(resource.id())));
+            }
         }
 
         NbtList workstationList = nbt.getList("workstations", NbtElement.COMPOUND_TYPE);
@@ -952,6 +1141,32 @@ public final class TownState {
         town.refreshDailyRates();
         return town;
     }
+
+    private final class DailyWorkPlan {
+        private final EnumMap<ResourceType, Long> produced = emptyResourceMap();
+        private final EnumMap<ResourceType, Long> consumed = emptyResourceMap();
+        private final EnumMap<ResourceType, Boolean> goalIncremented = new EnumMap<>(ResourceType.class);
+        private final EnumMap<WorkstationType, Integer> availableWorkers = new EnumMap<>(WorkstationType.class);
+        private final EnumMap<WorkstationType, Integer> assignedWorkers = new EnumMap<>(WorkstationType.class);
+        private final EnumMap<WorkstationType, Integer> tooledWorkers = new EnumMap<>(WorkstationType.class);
+        private final EnumMap<WorkstationType, Integer> bareHandWorkers = new EnumMap<>(WorkstationType.class);
+
+        private DailyWorkPlan() {
+            for (ResourceType resource : ResourceType.values()) {
+                goalIncremented.put(resource, false);
+            }
+            for (WorkstationType type : WorkstationType.values()) {
+                availableWorkers.put(type, workstation(type).workers());
+                assignedWorkers.put(type, 0);
+                tooledWorkers.put(type, 0);
+                bareHandWorkers.put(type, 0);
+            }
+        }
+    }
+
+    private record ProductionRecipe(WorkstationType workstation, long output, List<RecipeInput> inputs) {}
+
+    private record RecipeInput(ResourceType resource, long amount) {}
 
     private static final class WorkDemand {
         private final WorkstationType type;
