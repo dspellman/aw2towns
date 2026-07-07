@@ -20,33 +20,40 @@ import net.minecraft.util.math.BlockPos;
 
 public class TownManagerScreenHandler extends ScreenHandler {
 
-    public static final int DATA_COUNT = 39;
+    private static final int WORKSTATION_COUNT = WorkstationType.values().length;
+    private static final int RESOURCE_COUNT = ResourceType.values().length;
+
     public static final int BUTTON_FARM_MINUS = 0;
     public static final int BUTTON_FARM_PLUS = 1;
-    public static final int BUTTON_MINE_MINUS = 2;
-    public static final int BUTTON_MINE_PLUS = 3;
-    public static final int BUTTON_LUMBER_MINUS = 4;
-    public static final int BUTTON_LUMBER_PLUS = 5;
-    public static final int BUTTON_BLACKSMITH_MINUS = 6;
-    public static final int BUTTON_BLACKSMITH_PLUS = 7;
-    public static final int BUTTON_FARM_PRIORITY_MINUS = 8;
-    public static final int BUTTON_FARM_PRIORITY_PLUS = 9;
-    public static final int BUTTON_MINE_PRIORITY_MINUS = 10;
-    public static final int BUTTON_MINE_PRIORITY_PLUS = 11;
-    public static final int BUTTON_LUMBER_PRIORITY_MINUS = 12;
-    public static final int BUTTON_LUMBER_PRIORITY_PLUS = 13;
-    public static final int BUTTON_BLACKSMITH_PRIORITY_MINUS = 14;
-    public static final int BUTTON_BLACKSMITH_PRIORITY_PLUS = 15;
+    public static final int BUTTON_BAKER_MINUS = 2;
+    public static final int BUTTON_BAKER_PLUS = 3;
+    public static final int BUTTON_MINE_MINUS = 4;
+    public static final int BUTTON_MINE_PLUS = 5;
+    public static final int BUTTON_LUMBER_MINUS = 6;
+    public static final int BUTTON_LUMBER_PLUS = 7;
+    public static final int BUTTON_BLACKSMITH_MINUS = 8;
+    public static final int BUTTON_BLACKSMITH_PLUS = 9;
+    public static final int BUTTON_FARM_PRIORITY_MINUS = 10;
+    public static final int BUTTON_FARM_PRIORITY_PLUS = 11;
+    public static final int BUTTON_BAKER_PRIORITY_MINUS = 12;
+    public static final int BUTTON_BAKER_PRIORITY_PLUS = 13;
+    public static final int BUTTON_MINE_PRIORITY_MINUS = 14;
+    public static final int BUTTON_MINE_PRIORITY_PLUS = 15;
+    public static final int BUTTON_LUMBER_PRIORITY_MINUS = 16;
+    public static final int BUTTON_LUMBER_PRIORITY_PLUS = 17;
+    public static final int BUTTON_BLACKSMITH_PRIORITY_MINUS = 18;
+    public static final int BUTTON_BLACKSMITH_PRIORITY_PLUS = 19;
 
     private static final int IDX_TOTAL_WORKERS = 0;
     private static final int IDX_UNASSIGNED = 1;
     private static final int IDX_WORKERS = 2;
-    private static final int IDX_PRIORITIES = IDX_WORKERS + 4;
-    private static final int IDX_PRODUCTIVITY = IDX_PRIORITIES + 4;
-    private static final int IDX_SHORTAGES = IDX_PRODUCTIVITY + 4;
-    private static final int IDX_STORAGE = IDX_SHORTAGES + 4;
-    private static final int IDX_PRODUCTION = IDX_STORAGE + 7;
-    private static final int IDX_CONSUMPTION = IDX_PRODUCTION + 7;
+    private static final int IDX_PRIORITIES = IDX_WORKERS + WORKSTATION_COUNT;
+    private static final int IDX_PRODUCTIVITY = IDX_PRIORITIES + WORKSTATION_COUNT;
+    private static final int IDX_SHORTAGES = IDX_PRODUCTIVITY + WORKSTATION_COUNT;
+    private static final int IDX_STORAGE = IDX_SHORTAGES + WORKSTATION_COUNT;
+    private static final int IDX_PRODUCTION = IDX_STORAGE + RESOURCE_COUNT;
+    private static final int IDX_CONSUMPTION = IDX_PRODUCTION + RESOURCE_COUNT;
+    public static final int DATA_COUNT = IDX_CONSUMPTION + RESOURCE_COUNT;
 
     private final BlockPos pos;
     private final ScreenHandlerContext context;
@@ -164,25 +171,25 @@ public class TownManagerScreenHandler extends ScreenHandler {
                 if (index == IDX_UNASSIGNED) {
                     return town.unassignedWorkers();
                 }
-                if (index >= IDX_WORKERS && index < IDX_WORKERS + WorkstationType.values().length) {
+                if (index >= IDX_WORKERS && index < IDX_WORKERS + WORKSTATION_COUNT) {
                     return workstation(town, index - IDX_WORKERS).workers();
                 }
-                if (index >= IDX_PRIORITIES && index < IDX_PRIORITIES + WorkstationType.values().length) {
+                if (index >= IDX_PRIORITIES && index < IDX_PRIORITIES + WORKSTATION_COUNT) {
                     return workstation(town, index - IDX_PRIORITIES).priority();
                 }
-                if (index >= IDX_PRODUCTIVITY && index < IDX_PRODUCTIVITY + WorkstationType.values().length) {
+                if (index >= IDX_PRODUCTIVITY && index < IDX_PRODUCTIVITY + WORKSTATION_COUNT) {
                     return workstation(town, index - IDX_PRODUCTIVITY).productivityPercent();
                 }
-                if (index >= IDX_SHORTAGES && index < IDX_SHORTAGES + WorkstationType.values().length) {
+                if (index >= IDX_SHORTAGES && index < IDX_SHORTAGES + WORKSTATION_COUNT) {
                     return workstation(town, index - IDX_SHORTAGES).shortageFlags();
                 }
-                if (index >= IDX_STORAGE && index < IDX_STORAGE + ResourceType.values().length) {
+                if (index >= IDX_STORAGE && index < IDX_STORAGE + RESOURCE_COUNT) {
                     return town.resource(resource(index - IDX_STORAGE));
                 }
-                if (index >= IDX_PRODUCTION && index < IDX_PRODUCTION + ResourceType.values().length) {
+                if (index >= IDX_PRODUCTION && index < IDX_PRODUCTION + RESOURCE_COUNT) {
                     return town.productionPerDay(resource(index - IDX_PRODUCTION));
                 }
-                if (index >= IDX_CONSUMPTION && index < IDX_CONSUMPTION + ResourceType.values().length) {
+                if (index >= IDX_CONSUMPTION && index < IDX_CONSUMPTION + RESOURCE_COUNT) {
                     return town.consumptionPerDay(resource(index - IDX_CONSUMPTION));
                 }
                 return 0;
@@ -210,6 +217,8 @@ public class TownManagerScreenHandler extends ScreenHandler {
         return switch (id) {
             case BUTTON_FARM_MINUS -> new ButtonAction(WorkstationType.FARM, -1, false);
             case BUTTON_FARM_PLUS -> new ButtonAction(WorkstationType.FARM, 1, false);
+            case BUTTON_BAKER_MINUS -> new ButtonAction(WorkstationType.BAKER, -1, false);
+            case BUTTON_BAKER_PLUS -> new ButtonAction(WorkstationType.BAKER, 1, false);
             case BUTTON_MINE_MINUS -> new ButtonAction(WorkstationType.MINE, -1, false);
             case BUTTON_MINE_PLUS -> new ButtonAction(WorkstationType.MINE, 1, false);
             case BUTTON_LUMBER_MINUS -> new ButtonAction(WorkstationType.LUMBER_MILL, -1, false);
@@ -218,6 +227,8 @@ public class TownManagerScreenHandler extends ScreenHandler {
             case BUTTON_BLACKSMITH_PLUS -> new ButtonAction(WorkstationType.BLACKSMITH, 1, false);
             case BUTTON_FARM_PRIORITY_MINUS -> new ButtonAction(WorkstationType.FARM, -1, true);
             case BUTTON_FARM_PRIORITY_PLUS -> new ButtonAction(WorkstationType.FARM, 1, true);
+            case BUTTON_BAKER_PRIORITY_MINUS -> new ButtonAction(WorkstationType.BAKER, -1, true);
+            case BUTTON_BAKER_PRIORITY_PLUS -> new ButtonAction(WorkstationType.BAKER, 1, true);
             case BUTTON_MINE_PRIORITY_MINUS -> new ButtonAction(WorkstationType.MINE, -1, true);
             case BUTTON_MINE_PRIORITY_PLUS -> new ButtonAction(WorkstationType.MINE, 1, true);
             case BUTTON_LUMBER_PRIORITY_MINUS -> new ButtonAction(WorkstationType.LUMBER_MILL, -1, true);

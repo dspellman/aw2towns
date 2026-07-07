@@ -22,6 +22,7 @@
   "container.aw2towns.town_manager.consumed_by": "Consumed by: %s",
   "container.aw2towns.town_manager.flow_tooltip": "Made by: %s; used by: %s",
   "resource.aw2towns.wheat": "Wheat",
+  "resource.aw2towns.bread": "Bread",
   "resource.aw2towns.iron": "Iron",
   "resource.aw2towns.oak_planks": "Oak Planks",
   "resource.aw2towns.pickaxe": "Pickaxes",
@@ -29,6 +30,7 @@
   "resource.aw2towns.hoe": "Hoes",
   "resource.aw2towns.sword": "Swords",
   "workstation.aw2towns.farm": "Farm",
+  "workstation.aw2towns.baker": "Baker",
   "workstation.aw2towns.mine": "Mine",
   "workstation.aw2towns.lumber_mill": "Lumber Mill",
   "workstation.aw2towns.blacksmith": "Blacksmith"

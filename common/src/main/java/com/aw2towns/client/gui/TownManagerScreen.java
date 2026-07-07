@@ -58,6 +58,8 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
 
         addWorkerButtons(WorkstationType.FARM, TownManagerScreenHandler.BUTTON_FARM_MINUS, TownManagerScreenHandler.BUTTON_FARM_PLUS,
                 TownManagerScreenHandler.BUTTON_FARM_PRIORITY_MINUS, TownManagerScreenHandler.BUTTON_FARM_PRIORITY_PLUS);
+        addWorkerButtons(WorkstationType.BAKER, TownManagerScreenHandler.BUTTON_BAKER_MINUS, TownManagerScreenHandler.BUTTON_BAKER_PLUS,
+                TownManagerScreenHandler.BUTTON_BAKER_PRIORITY_MINUS, TownManagerScreenHandler.BUTTON_BAKER_PRIORITY_PLUS);
         addWorkerButtons(WorkstationType.MINE, TownManagerScreenHandler.BUTTON_MINE_MINUS, TownManagerScreenHandler.BUTTON_MINE_PLUS,
                 TownManagerScreenHandler.BUTTON_MINE_PRIORITY_MINUS, TownManagerScreenHandler.BUTTON_MINE_PRIORITY_PLUS);
         addWorkerButtons(WorkstationType.LUMBER_MILL, TownManagerScreenHandler.BUTTON_LUMBER_MINUS, TownManagerScreenHandler.BUTTON_LUMBER_PLUS,
@@ -350,6 +352,7 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
     private static String producers(ResourceType resource) {
         return switch (resource) {
             case WHEAT -> "Farm";
+            case BREAD -> "Baker";
             case IRON -> "Mine";
             case OAK_PLANKS -> "Lumber Mill";
             case PICKAXE, AXE, HOE, SWORD -> "Blacksmith";
@@ -358,7 +361,8 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
 
     private static String consumers(ResourceType resource) {
         return switch (resource) {
-            case WHEAT -> "Farmers, miners, lumberjacks, blacksmiths";
+            case WHEAT -> "Baker";
+            case BREAD -> "All workers";
             case IRON, OAK_PLANKS -> "Blacksmith";
             case PICKAXE -> "Mine";
             case AXE -> "Lumber Mill";

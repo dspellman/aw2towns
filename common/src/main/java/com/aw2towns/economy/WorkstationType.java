@@ -5,6 +5,7 @@ import net.minecraft.text.Text;
 
 public enum WorkstationType {
     FARM("farm"),
+    BAKER("baker"),
     MINE("mine"),
     LUMBER_MILL("lumber_mill"),
     BLACKSMITH("blacksmith");

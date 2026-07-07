@@ -5,6 +5,7 @@ import net.minecraft.text.Text;
 
 public enum ResourceType {
     WHEAT("wheat"),
+    BREAD("bread"),
     IRON("iron"),
     OAK_PLANKS("oak_planks"),
     PICKAXE("pickaxe"),

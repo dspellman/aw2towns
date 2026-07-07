@@ -19,12 +19,14 @@ public final class TownState {
 
     private static final int TICKS_PER_SECOND = 20;
     private static final long DEFAULT_CAPACITY = 1_000_000_000L * SCALE;
-    private static final double WHEAT_PER_WORKER_PER_DAY = 3.0D;
+    private static final double BREAD_PER_WORKER_PER_DAY = 1.0D;
     private static final double TOOL_PER_WORKER_PER_DAY = 1.0D;
     private static final double MINE_IRON_PER_WORKER_PER_DAY = 15.0D;
     private static final double LUMBER_PLANKS_PER_WORKER_PER_DAY = 15.0D;
     private static final double FARM_WHEAT_PER_WORKER_PER_DAY = 15.0D;
-    private static final double SMITH_TOOLS_PER_WORKER_PER_DAY = 10.0D / 3.0D;
+    private static final double BAKER_BREAD_PER_WORKER_PER_DAY = 10.0D;
+    private static final double SMITH_TOOLS_PER_WORKER_PER_DAY = 10.0D;
+    private static final long BREAD_WHEAT_COST = 3L;
     private static final long TOOL_IRON_COST = 3L;
     private static final long TOOL_PLANKS_COST = 3L;
 
@@ -54,6 +56,7 @@ public final class TownState {
         TownState town = new TownState("starter", "Prototype Town");
         town.totalWorkers = 12;
         town.workstation(WorkstationType.FARM).setWorkers(3);
+        town.workstation(WorkstationType.BAKER).setWorkers(0);
         town.workstation(WorkstationType.MINE).setWorkers(3);
         town.workstation(WorkstationType.LUMBER_MILL).setWorkers(2);
         town.workstation(WorkstationType.BLACKSMITH).setWorkers(2);
@@ -125,6 +128,7 @@ public final class TownState {
             resourceRaw(resource, 0L);
         }
         workstation(WorkstationType.FARM).setWorkers(3);
+        workstation(WorkstationType.BAKER).setWorkers(0);
         workstation(WorkstationType.MINE).setWorkers(3);
         workstation(WorkstationType.LUMBER_MILL).setWorkers(2);
         workstation(WorkstationType.BLACKSMITH).setWorkers(2);
@@ -162,6 +166,18 @@ public final class TownState {
         produceFor(WorkstationType.LUMBER_MILL, workstation(WorkstationType.LUMBER_MILL).workers(), 1.0D, produced, cycle);
         addProducedToStorage(produced);
 
+        WorkDemand bakerDemand = buildBakerDemand(cycle);
+        if (bakerDemand != null) {
+            allocateInputs(List.of(bakerDemand));
+            int productivity = percent(bakerDemand.inputFactor);
+            TownWorkstationState baker = workstation(WorkstationType.BAKER);
+            baker.setProductivityPercent(productivity);
+            baker.setShortageFlags(shortageFlags(bakerDemand));
+            EnumMap<ResourceType, Long> bakerProduced = emptyResourceMap();
+            produceFor(WorkstationType.BAKER, bakerDemand.workers, bakerDemand.inputFactor, bakerProduced, cycle);
+            addProducedToStorage(bakerProduced);
+        }
+
         WorkDemand smithDemand = buildBlacksmithDemand(cycle);
         if (smithDemand != null) {
             allocateInputs(List.of(smithDemand));
@@ -189,14 +205,26 @@ public final class TownState {
         return demand;
     }
 
+    private WorkDemand buildBakerDemand(SimulationCycle cycle) {
+        TownWorkstationState workstation = workstation(WorkstationType.BAKER);
+        if (workstation.workers() <= 0) {
+            return null;
+        }
+        long bread = breadProducedBy(workstation.workers(), cycle);
+        WorkDemand demand = new WorkDemand(WorkstationType.BAKER, workstation.workers(), workstation.priority());
+        demand.add(ResourceType.WHEAT, bread * BREAD_WHEAT_COST);
+        return demand;
+    }
+
     private List<WorkDemand> buildUpkeepDemands(SimulationCycle cycle) {
         List<WorkDemand> demands = new ArrayList<>();
-        long wheat = cycle.perStep(WHEAT_PER_WORKER_PER_DAY);
+        long bread = cycle.perStep(BREAD_PER_WORKER_PER_DAY);
         long tool = cycle.perStep(TOOL_PER_WORKER_PER_DAY);
-        addDemand(demands, WorkstationType.FARM, ResourceType.WHEAT, wheat, ResourceType.HOE, tool);
-        addDemand(demands, WorkstationType.MINE, ResourceType.WHEAT, wheat, ResourceType.PICKAXE, tool);
-        addDemand(demands, WorkstationType.LUMBER_MILL, ResourceType.WHEAT, wheat, ResourceType.AXE, tool);
-        addDemand(demands, WorkstationType.BLACKSMITH, ResourceType.WHEAT, wheat, ResourceType.SWORD, tool);
+        addDemand(demands, WorkstationType.FARM, ResourceType.BREAD, bread, ResourceType.HOE, tool);
+        addDemand(demands, WorkstationType.BAKER, ResourceType.BREAD, bread, null, 0L);
+        addDemand(demands, WorkstationType.MINE, ResourceType.BREAD, bread, ResourceType.PICKAXE, tool);
+        addDemand(demands, WorkstationType.LUMBER_MILL, ResourceType.BREAD, bread, ResourceType.AXE, tool);
+        addDemand(demands, WorkstationType.BLACKSMITH, ResourceType.BREAD, bread, ResourceType.SWORD, tool);
         return demands;
     }
 
@@ -209,7 +237,9 @@ public final class TownState {
         }
         WorkDemand demand = new WorkDemand(type, workstation.workers(), workstation.priority());
         demand.add(food, foodPerWorker * workstation.workers());
-        demand.add(equipment, equipmentPerWorker * workstation.workers());
+        if (equipment != null && equipmentPerWorker > 0) {
+            demand.add(equipment, equipmentPerWorker * workstation.workers());
+        }
         demands.add(demand);
         return demand;
     }
@@ -265,6 +295,7 @@ public final class TownState {
     private void produceFor(WorkstationType type, int workers, double factor, EnumMap<ResourceType, Long> produced, SimulationCycle cycle) {
         switch (type) {
             case FARM -> addProduced(produced, ResourceType.WHEAT, cycle.perStep(FARM_WHEAT_PER_WORKER_PER_DAY) * workers, factor);
+            case BAKER -> addProduced(produced, ResourceType.BREAD, breadProducedBy(workers, cycle), factor);
             case MINE -> addProduced(produced, ResourceType.IRON, cycle.perStep(MINE_IRON_PER_WORKER_PER_DAY) * workers, factor);
             case LUMBER_MILL -> addProduced(produced, ResourceType.OAK_PLANKS, cycle.perStep(LUMBER_PLANKS_PER_WORKER_PER_DAY) * workers, factor);
             case BLACKSMITH -> addProducedTools(produced, Math.round(toolsProducedBy(workers, cycle) * factor));
@@ -272,20 +303,49 @@ public final class TownState {
     }
 
     private void addProducedTools(EnumMap<ResourceType, Long> produced, long totalTools) {
-        int toolWorkers = assignedWorkers();
-        if (toolWorkers <= 0 || totalTools <= 0) {
+        if (totalTools <= 0) {
             return;
         }
 
-        long pickaxes = Math.round(totalTools * workstation(WorkstationType.MINE).workers() / (double) toolWorkers);
-        long axes = Math.round(totalTools * workstation(WorkstationType.LUMBER_MILL).workers() / (double) toolWorkers);
-        long hoes = Math.round(totalTools * workstation(WorkstationType.FARM).workers() / (double) toolWorkers);
-        long swords = Math.max(0, totalTools - pickaxes - axes - hoes);
+        long remaining = totalTools;
+        while (remaining > 0) {
+            ResourceType target = toolTargetForProduced(produced);
+            long amount = Math.min(SCALE, remaining);
+            produced.put(target, produced.get(target) + amount);
+            remaining -= amount;
+        }
+    }
 
-        produced.put(ResourceType.PICKAXE, produced.get(ResourceType.PICKAXE) + pickaxes);
-        produced.put(ResourceType.AXE, produced.get(ResourceType.AXE) + axes);
-        produced.put(ResourceType.HOE, produced.get(ResourceType.HOE) + hoes);
-        produced.put(ResourceType.SWORD, produced.get(ResourceType.SWORD) + swords);
+    private ResourceType toolTargetForProduced(EnumMap<ResourceType, Long> produced) {
+        ResourceType bestDeficit = null;
+        long bestDeficitAmount = 0L;
+        for (ResourceType tool : toolResources()) {
+            long needed = (long) consumptionPerDay(tool) * SCALE;
+            long available = raw(tool) + produced.get(tool);
+            long deficit = needed - available;
+            if (deficit > bestDeficitAmount) {
+                bestDeficitAmount = deficit;
+                bestDeficit = tool;
+            }
+        }
+        if (bestDeficit != null) {
+            return bestDeficit;
+        }
+
+        ResourceType lowest = ResourceType.PICKAXE;
+        long lowestAmount = Long.MAX_VALUE;
+        for (ResourceType tool : toolResources()) {
+            long amount = raw(tool) + produced.get(tool);
+            if (amount < lowestAmount) {
+                lowestAmount = amount;
+                lowest = tool;
+            }
+        }
+        return lowest;
+    }
+
+    private ResourceType[] toolResources() {
+        return new ResourceType[] {ResourceType.PICKAXE, ResourceType.AXE, ResourceType.HOE, ResourceType.SWORD};
     }
 
     private void addProduced(EnumMap<ResourceType, Long> produced, ResourceType resource, long base, double factor) {
@@ -359,6 +419,7 @@ public final class TownState {
         }
 
         addDeficitNeed(needs, WorkstationType.FARM, ResourceType.WHEAT, FARM_WHEAT_PER_WORKER_PER_DAY);
+        addDeficitNeed(needs, WorkstationType.BAKER, ResourceType.BREAD, BAKER_BREAD_PER_WORKER_PER_DAY);
         addDeficitNeed(needs, WorkstationType.MINE, ResourceType.IRON, MINE_IRON_PER_WORKER_PER_DAY);
         addDeficitNeed(needs, WorkstationType.LUMBER_MILL, ResourceType.OAK_PLANKS, LUMBER_PLANKS_PER_WORKER_PER_DAY);
         addDeficitNeed(needs, WorkstationType.BLACKSMITH, ResourceType.PICKAXE, SMITH_TOOLS_PER_WORKER_PER_DAY);
@@ -382,42 +443,67 @@ public final class TownState {
         if (idleWorkers <= 0) {
             return;
         }
-        long needed = cycle.perStep(WHEAT_PER_WORKER_PER_DAY) * idleWorkers;
-        long consumed = Math.min(raw(ResourceType.WHEAT), needed);
-        consume(ResourceType.WHEAT, consumed);
+        long needed = cycle.perStep(BREAD_PER_WORKER_PER_DAY) * idleWorkers;
+        long consumed = Math.min(raw(ResourceType.BREAD), needed);
+        consume(ResourceType.BREAD, consumed);
     }
 
     private void refreshDailyRates() {
         clearRates();
         productionPerDay.put(ResourceType.WHEAT, whole(FARM_WHEAT_PER_WORKER_PER_DAY * workstation(WorkstationType.FARM).workers()));
+        int breadPerDay = whole(BAKER_BREAD_PER_WORKER_PER_DAY * workstation(WorkstationType.BAKER).workers());
+        productionPerDay.put(ResourceType.BREAD, breadPerDay);
         productionPerDay.put(ResourceType.IRON, whole(MINE_IRON_PER_WORKER_PER_DAY * workstation(WorkstationType.MINE).workers()));
         productionPerDay.put(ResourceType.OAK_PLANKS, whole(LUMBER_PLANKS_PER_WORKER_PER_DAY * workstation(WorkstationType.LUMBER_MILL).workers()));
 
         int toolsPerDay = whole(SMITH_TOOLS_PER_WORKER_PER_DAY * workstation(WorkstationType.BLACKSMITH).workers());
-        addToolProductionRates(toolsPerDay);
-        consumptionPerDay.put(ResourceType.WHEAT, whole(totalWorkers * WHEAT_PER_WORKER_PER_DAY));
+        consumptionPerDay.put(ResourceType.WHEAT, (int) (breadPerDay * BREAD_WHEAT_COST));
+        consumptionPerDay.put(ResourceType.BREAD, whole(totalWorkers * BREAD_PER_WORKER_PER_DAY));
         consumptionPerDay.put(ResourceType.IRON, (int) (toolsPerDay * TOOL_IRON_COST));
         consumptionPerDay.put(ResourceType.OAK_PLANKS, (int) (toolsPerDay * TOOL_PLANKS_COST));
         consumptionPerDay.put(ResourceType.PICKAXE, whole(workstation(WorkstationType.MINE).workers() * TOOL_PER_WORKER_PER_DAY));
         consumptionPerDay.put(ResourceType.AXE, whole(workstation(WorkstationType.LUMBER_MILL).workers() * TOOL_PER_WORKER_PER_DAY));
         consumptionPerDay.put(ResourceType.HOE, whole(workstation(WorkstationType.FARM).workers() * TOOL_PER_WORKER_PER_DAY));
         consumptionPerDay.put(ResourceType.SWORD, whole(workstation(WorkstationType.BLACKSMITH).workers() * TOOL_PER_WORKER_PER_DAY));
+        addToolProductionRates(toolsPerDay);
     }
 
     private void addToolProductionRates(int totalTools) {
-        int toolWorkers = assignedWorkers();
-        if (toolWorkers <= 0 || totalTools <= 0) {
+        if (totalTools <= 0) {
             return;
         }
-        int pickaxes = (int) Math.round(totalTools * workstation(WorkstationType.MINE).workers() / (double) toolWorkers);
-        int axes = (int) Math.round(totalTools * workstation(WorkstationType.LUMBER_MILL).workers() / (double) toolWorkers);
-        int hoes = (int) Math.round(totalTools * workstation(WorkstationType.FARM).workers() / (double) toolWorkers);
-        int swords = Math.max(0, totalTools - pickaxes - axes - hoes);
+        int remaining = totalTools;
+        while (remaining > 0) {
+            ResourceType target = toolTargetForDailyRates();
+            productionPerDay.put(target, productionPerDay.get(target) + 1);
+            remaining--;
+        }
+    }
 
-        productionPerDay.put(ResourceType.PICKAXE, pickaxes);
-        productionPerDay.put(ResourceType.AXE, axes);
-        productionPerDay.put(ResourceType.HOE, hoes);
-        productionPerDay.put(ResourceType.SWORD, swords);
+    private ResourceType toolTargetForDailyRates() {
+        ResourceType bestDeficit = null;
+        int bestDeficitAmount = 0;
+        for (ResourceType tool : toolResources()) {
+            int deficit = consumptionPerDay(tool) - productionPerDay(tool);
+            if (deficit > bestDeficitAmount) {
+                bestDeficitAmount = deficit;
+                bestDeficit = tool;
+            }
+        }
+        if (bestDeficit != null) {
+            return bestDeficit;
+        }
+
+        ResourceType lowest = ResourceType.PICKAXE;
+        int lowestAmount = Integer.MAX_VALUE;
+        for (ResourceType tool : toolResources()) {
+            int amount = resource(tool) + productionPerDay(tool);
+            if (amount < lowestAmount) {
+                lowestAmount = amount;
+                lowest = tool;
+            }
+        }
+        return lowest;
     }
 
     private int shortageFlags(WorkDemand demand) {
@@ -483,6 +569,10 @@ public final class TownState {
 
     private static long toolsProducedBy(int workers, SimulationCycle cycle) {
         return cycle.perStep(SMITH_TOOLS_PER_WORKER_PER_DAY) * workers;
+    }
+
+    private static long breadProducedBy(int workers, SimulationCycle cycle) {
+        return cycle.perStep(BAKER_BREAD_PER_WORKER_PER_DAY) * workers;
     }
 
     private static int toWhole(long scaled) {
