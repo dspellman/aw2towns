@@ -9,6 +9,7 @@ public enum WorkstationType {
     MINE("mine"),
     LUMBER_MILL("lumber_mill"),
     CARPENTER("carpenter"),
+    COURIER("courier"),
     BLACKSMITH("blacksmith");
 
     private final String id;

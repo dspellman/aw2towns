@@ -66,6 +66,8 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
                 TownManagerScreenHandler.BUTTON_LUMBER_PRIORITY_MINUS, TownManagerScreenHandler.BUTTON_LUMBER_PRIORITY_PLUS);
         addWorkerButtons(WorkstationType.CARPENTER, TownManagerScreenHandler.BUTTON_CARPENTER_MINUS, TownManagerScreenHandler.BUTTON_CARPENTER_PLUS,
                 TownManagerScreenHandler.BUTTON_CARPENTER_PRIORITY_MINUS, TownManagerScreenHandler.BUTTON_CARPENTER_PRIORITY_PLUS);
+        addWorkerButtons(WorkstationType.COURIER, TownManagerScreenHandler.BUTTON_COURIER_MINUS, TownManagerScreenHandler.BUTTON_COURIER_PLUS,
+                TownManagerScreenHandler.BUTTON_COURIER_PRIORITY_MINUS, TownManagerScreenHandler.BUTTON_COURIER_PRIORITY_PLUS);
         addWorkerButtons(WorkstationType.BLACKSMITH, TownManagerScreenHandler.BUTTON_BLACKSMITH_MINUS, TownManagerScreenHandler.BUTTON_BLACKSMITH_PLUS,
                 TownManagerScreenHandler.BUTTON_BLACKSMITH_PRIORITY_MINUS, TownManagerScreenHandler.BUTTON_BLACKSMITH_PRIORITY_PLUS);
         updateOverviewButtonVisibility();
