@@ -299,7 +299,10 @@ public final class TownState {
     }
 
     private void assignProductionFor(ResourceType resource, DailyWorkPlan plan) {
-        while (raw(resource) + plan.produced.get(resource) < (long) stockpileGoal(resource) * SCALE) {
+        if (raw(resource) + plan.produced.get(resource) >= (long) stockpileGoal(resource) * SCALE) {
+            return;
+        }
+        while (true) {
             ProductionRecipe recipe = recipeFor(resource, plan);
             if (recipe == null) {
                 return;
