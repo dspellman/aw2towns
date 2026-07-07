@@ -2,6 +2,7 @@ package com.aw2towns.screen;
 
 import com.aw2towns.economy.ResourceType;
 import com.aw2towns.economy.TownSavedData;
+import com.aw2towns.economy.TownSimulationManager;
 import com.aw2towns.economy.TownState;
 import com.aw2towns.economy.TownWorkstationState;
 import com.aw2towns.economy.WorkstationType;
@@ -52,6 +53,8 @@ public class TownManagerScreenHandler extends ScreenHandler {
     public static final int BUTTON_COURIER_PRIORITY_PLUS = 25;
     public static final int BUTTON_BLACKSMITH_PRIORITY_MINUS = 26;
     public static final int BUTTON_BLACKSMITH_PRIORITY_PLUS = 27;
+    public static final int BUTTON_CYCLE_MINUS = 28;
+    public static final int BUTTON_CYCLE_PLUS = 29;
     private static final int WORKER_MOVE_BASE = 1000;
     private static final int WORKER_ID_MASK = 0x3FF;
     private static final int WORKER_MOVE_TARGET_UNASSIGNED = WorkstationType.values().length;
@@ -60,7 +63,8 @@ public class TownManagerScreenHandler extends ScreenHandler {
     private static final int IDX_UNASSIGNED = 1;
     private static final int IDX_TRANSPORT_CAPACITY = 2;
     private static final int IDX_TRANSPORT_REMAINING = 3;
-    private static final int IDX_WORKERS = 4;
+    private static final int IDX_CYCLE_SECONDS = 4;
+    private static final int IDX_WORKERS = 5;
     private static final int IDX_PRIORITIES = IDX_WORKERS + WORKSTATION_COUNT;
     private static final int IDX_PRODUCTIVITY = IDX_PRIORITIES + WORKSTATION_COUNT;
     private static final int IDX_SHORTAGES = IDX_PRODUCTIVITY + WORKSTATION_COUNT;
@@ -103,6 +107,11 @@ public class TownManagerScreenHandler extends ScreenHandler {
         if (id >= WORKER_MOVE_BASE) {
             return handleWorkerMove(player, serverWorld, id);
         }
+        if (id == BUTTON_CYCLE_MINUS || id == BUTTON_CYCLE_PLUS) {
+            TownSimulationManager.adjustCycleSeconds(id == BUTTON_CYCLE_PLUS ? 1 : -1);
+            sendContentUpdates();
+            return true;
+        }
         ButtonAction action = buttonAction(id);
         if (action == null) {
             return false;
@@ -142,6 +151,10 @@ public class TownManagerScreenHandler extends ScreenHandler {
 
     public int transportRemaining() {
         return properties.get(IDX_TRANSPORT_REMAINING);
+    }
+
+    public int cycleSeconds() {
+        return properties.get(IDX_CYCLE_SECONDS);
     }
 
     public int workers(WorkstationType type) {
@@ -237,6 +250,9 @@ public class TownManagerScreenHandler extends ScreenHandler {
                 }
                 if (index == IDX_TRANSPORT_REMAINING) {
                     return town.transportRemaining();
+                }
+                if (index == IDX_CYCLE_SECONDS) {
+                    return TownSimulationManager.cycleSeconds();
                 }
                 if (index >= IDX_WORKERS && index < IDX_WORKERS + WORKSTATION_COUNT) {
                     return workstation(town, index - IDX_WORKERS).workers();

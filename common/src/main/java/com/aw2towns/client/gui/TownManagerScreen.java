@@ -36,10 +36,15 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
     private static final int WORKER_TARGET_RADIUS = 8;
     private static final int WORKER_HEADER_X = 126;
     private static final int WORKER_HEADER_Y = 48;
-    private static final int WORKER_HEADER_W = 156;
+    private static final int WORKER_HEADER_W = 88;
     private static final int WORKER_HEADER_H = 18;
     private static final int WORKER_SLOT_X = 126;
     private static final int WORKER_SLOT_SPACING = 18;
+    private static final int CYCLE_MINUS_X = 220;
+    private static final int CYCLE_VALUE_X = 240;
+    private static final int CYCLE_PLUS_X = 268;
+    private static final int CYCLE_BUTTON_Y = 50;
+    private static final int CYCLE_BUTTON_SIZE = 14;
     private static final Identifier WORKER_ICON = AW2Towns.id("textures/gui/worker.png");
 
     private final List<OverviewButton> overviewButtons = new ArrayList<>();
@@ -71,6 +76,14 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
                     .build());
             tabX += tab.width + 4;
         }
+        addDrawableChild(ButtonWidget.builder(Text.literal("-"),
+                        button -> click(TownManagerScreenHandler.BUTTON_CYCLE_MINUS))
+                .dimensions(x + CYCLE_MINUS_X, y + CYCLE_BUTTON_Y, CYCLE_BUTTON_SIZE, CYCLE_BUTTON_SIZE)
+                .build());
+        addDrawableChild(ButtonWidget.builder(Text.literal("+"),
+                        button -> click(TownManagerScreenHandler.BUTTON_CYCLE_PLUS))
+                .dimensions(x + CYCLE_PLUS_X, y + CYCLE_BUTTON_Y, CYCLE_BUTTON_SIZE, CYCLE_BUTTON_SIZE)
+                .build());
 
         addWorkerButtons(WorkstationType.FARM, TownManagerScreenHandler.BUTTON_FARM_MINUS, TownManagerScreenHandler.BUTTON_FARM_PLUS,
                 TownManagerScreenHandler.BUTTON_FARM_PRIORITY_MINUS, TownManagerScreenHandler.BUTTON_FARM_PRIORITY_PLUS);
@@ -174,11 +187,10 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
             workerRows.clear();
             drawUnassignedWorkers(context);
         } else {
-            context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.workers",
-                    handler.totalWorkers(), handler.unassignedWorkers()), 126, 48, MUTED, false);
-            context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.transport",
-                    handler.transportRemaining(), handler.transportCapacity()), 126, 58, MUTED, false);
+            context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.workers_compact",
+                    handler.totalWorkers(), handler.unassignedWorkers()), 126, 53, MUTED, false);
         }
+        drawCycleSeconds(context);
 
         switch (currentTab) {
             case OVERVIEW -> drawOverview(context);
@@ -375,6 +387,11 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
     private void drawWorkerIcon(DrawContext context, int iconX, int iconY) {
         context.drawTexture(WORKER_ICON, iconX, iconY, 0, 0, WORKER_ICON_SIZE, WORKER_ICON_SIZE,
                 WORKER_ICON_SIZE, WORKER_ICON_SIZE);
+    }
+
+    private void drawCycleSeconds(DrawContext context) {
+        context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.cycle_seconds",
+                handler.cycleSeconds()), CYCLE_VALUE_X, 53, MUTED, false);
     }
 
     private int workerDropButtonId(int relativeX, int relativeY, int draggedWorkerId) {

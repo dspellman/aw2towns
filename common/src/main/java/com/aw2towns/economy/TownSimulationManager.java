@@ -1,6 +1,5 @@
 package com.aw2towns.economy;
 
-import com.aw2towns.registry.ModGameRules;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.world.World;
@@ -8,6 +7,11 @@ import net.minecraft.world.World;
 public final class TownSimulationManager {
 
     private static final int ROUND_ROBIN_INTERVAL_TICKS = 5;
+    private static final int DEFAULT_CYCLE_SECONDS = 20;
+    private static final int MIN_CYCLE_SECONDS = 5;
+    private static final int MAX_CYCLE_SECONDS = 600;
+    private static final int CYCLE_STEP_SECONDS = 5;
+    private static int cycleSeconds = DEFAULT_CYCLE_SECONDS;
 
     private TownSimulationManager() {}
 
@@ -20,9 +24,21 @@ public final class TownSimulationManager {
         if (gameTime % ROUND_ROBIN_INTERVAL_TICKS != 0) {
             return;
         }
-        TownState.SimulationCycle cycle = TownState.SimulationCycle.ofSeconds(
-                overworld.getGameRules().getInt(ModGameRules.TOWN_SIMULATION_DAY_SECONDS),
-                overworld.getGameRules().getInt(ModGameRules.TOWN_SIMULATION_NIGHT_SECONDS));
-        TownSavedData.get(overworld).tickRoundRobin(gameTime, cycle);
+        TownSavedData.get(overworld).tickRoundRobin(gameTime, currentCycle());
+    }
+
+    public static int cycleSeconds() {
+        return cycleSeconds;
+    }
+
+    public static void adjustCycleSeconds(int steps) {
+        cycleSeconds = Math.max(MIN_CYCLE_SECONDS, Math.min(MAX_CYCLE_SECONDS,
+                cycleSeconds + steps * CYCLE_STEP_SECONDS));
+    }
+
+    private static TownState.SimulationCycle currentCycle() {
+        int daySeconds = cycleSeconds / 2;
+        int nightSeconds = cycleSeconds - daySeconds;
+        return TownState.SimulationCycle.ofSeconds(daySeconds, nightSeconds);
     }
 }
