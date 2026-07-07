@@ -149,6 +149,8 @@ public final class TownState {
 
     private void simulateStep(long gameTime, SimulationCycle cycle) {
         refreshDailyRates();
+        autoAssignIdleWorkers();
+        refreshDailyRates();
         if (!cycle.isDaytime(gameTime)) {
             return;
         }
@@ -308,6 +310,71 @@ public final class TownState {
             workstation.setShortageFlags(workstation.shortageFlags() | shortageFlags(demand));
         }
         consumeIdleFood(cycle);
+    }
+
+    private void autoAssignIdleWorkers() {
+        while (unassignedWorkers() > 0) {
+            WorkstationType target = bestIdleWorkerTarget();
+            if (target == null) {
+                return;
+            }
+            TownWorkstationState workstation = workstation(target);
+            workstation.setWorkers(workstation.workers() + 1);
+            refreshDailyRates();
+        }
+    }
+
+    private WorkstationType bestIdleWorkerTarget() {
+        EnumMap<WorkstationType, Double> needs = workstationDeficitNeeds();
+        WorkstationType bestDeficit = null;
+        double bestNeed = 0.0D;
+        for (WorkstationType type : WorkstationType.values()) {
+            double need = needs.get(type);
+            if (need > bestNeed || need == bestNeed && bestDeficit != null
+                    && workstation(type).priority() > workstation(bestDeficit).priority()) {
+                bestNeed = need;
+                bestDeficit = type;
+            }
+        }
+        if (bestDeficit != null && bestNeed > 0.0D) {
+            return bestDeficit;
+        }
+
+        WorkstationType highestPriority = null;
+        for (WorkstationType type : WorkstationType.values()) {
+            if (highestPriority == null
+                    || workstation(type).priority() > workstation(highestPriority).priority()
+                    || workstation(type).priority() == workstation(highestPriority).priority()
+                    && workstation(type).workers() < workstation(highestPriority).workers()) {
+                highestPriority = type;
+            }
+        }
+        return highestPriority;
+    }
+
+    private EnumMap<WorkstationType, Double> workstationDeficitNeeds() {
+        EnumMap<WorkstationType, Double> needs = new EnumMap<>(WorkstationType.class);
+        for (WorkstationType type : WorkstationType.values()) {
+            needs.put(type, 0.0D);
+        }
+
+        addDeficitNeed(needs, WorkstationType.FARM, ResourceType.WHEAT, FARM_WHEAT_PER_WORKER_PER_DAY);
+        addDeficitNeed(needs, WorkstationType.MINE, ResourceType.IRON, MINE_IRON_PER_WORKER_PER_DAY);
+        addDeficitNeed(needs, WorkstationType.LUMBER_MILL, ResourceType.OAK_PLANKS, LUMBER_PLANKS_PER_WORKER_PER_DAY);
+        addDeficitNeed(needs, WorkstationType.BLACKSMITH, ResourceType.PICKAXE, SMITH_TOOLS_PER_WORKER_PER_DAY);
+        addDeficitNeed(needs, WorkstationType.BLACKSMITH, ResourceType.AXE, SMITH_TOOLS_PER_WORKER_PER_DAY);
+        addDeficitNeed(needs, WorkstationType.BLACKSMITH, ResourceType.HOE, SMITH_TOOLS_PER_WORKER_PER_DAY);
+        addDeficitNeed(needs, WorkstationType.BLACKSMITH, ResourceType.SWORD, SMITH_TOOLS_PER_WORKER_PER_DAY);
+        return needs;
+    }
+
+    private void addDeficitNeed(EnumMap<WorkstationType, Double> needs, WorkstationType type,
+                                ResourceType resource, double outputPerWorkerPerDay) {
+        int deficit = consumptionPerDay(resource) - productionPerDay(resource);
+        if (deficit <= 0 || outputPerWorkerPerDay <= 0.0D) {
+            return;
+        }
+        needs.put(type, needs.get(type) + deficit / outputPerWorkerPerDay);
     }
 
     private void consumeIdleFood(SimulationCycle cycle) {

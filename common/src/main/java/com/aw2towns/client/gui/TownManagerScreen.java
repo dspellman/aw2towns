@@ -34,9 +34,7 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
     private Tab currentTab = Tab.OVERVIEW;
     private int workersScroll;
     private int overviewStatusScroll;
-    private int storageScroll;
     private int productionScroll;
-    private int consumptionScroll;
 
     public TownManagerScreen(TownManagerScreenHandler handler, PlayerInventory inventory, Text title) {
         super(handler, inventory, title);
@@ -102,9 +100,7 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
             return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
         }
         switch (currentTab) {
-            case STORAGE -> storageScroll = clampScroll(storageScroll + delta);
             case PRODUCTION -> productionScroll = clampScroll(productionScroll + delta);
-            case CONSUMPTION -> consumptionScroll = clampScroll(consumptionScroll + delta);
             case OVERVIEW, WORKERS -> {}
         }
         return true;
@@ -130,9 +126,7 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
         switch (currentTab) {
             case OVERVIEW -> drawOverview(context);
             case WORKERS -> drawWorkerAssignments(context);
-            case STORAGE -> drawStorage(context);
-            case PRODUCTION -> drawFlowList(context, true);
-            case CONSUMPTION -> drawFlowList(context, false);
+            case PRODUCTION -> drawProductionLedger(context);
         }
     }
 
@@ -242,55 +236,40 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
         drawScrollBar(context, LIST_Y, LIST_H, scroll, WorkstationType.values().length, visibleRows);
     }
 
-    private void drawStorage(DrawContext context) {
-        drawListHeader(context, Text.translatable("container.aw2towns.town_manager.storage_header"),
-                Text.translatable("container.aw2towns.town_manager.count"));
+    private void drawProductionLedger(DrawContext context) {
+        drawProductionHeader(context);
         int row = 0;
-        for (int i = storageScroll; i < ResourceType.values().length && row < visibleRows(); i++, row++) {
+        for (int i = productionScroll; i < ResourceType.values().length && row < visibleRows(); i++, row++) {
             ResourceType resource = ResourceType.values()[i];
             int yPos = LIST_Y + 18 + row * ROW_HEIGHT;
             context.drawText(textRenderer, resource.displayName(), LIST_X + 6, yPos, resourceColor(resource), false);
-            context.drawText(textRenderer, Integer.toString(handler.resource(resource)), LIST_X + 184, yPos, resourceColor(resource), false);
+            context.drawText(textRenderer, Integer.toString(handler.productionPerDay(resource)), LIST_X + 104, yPos, resourceColor(resource), false);
+            context.drawText(textRenderer, Integer.toString(handler.consumptionPerDay(resource)), LIST_X + 150, yPos, resourceColor(resource), false);
+            context.drawText(textRenderer, Integer.toString(handler.resource(resource)), LIST_X + 200, yPos, resourceColor(resource), false);
         }
     }
 
-    private void drawFlowList(DrawContext context, boolean production) {
-        drawListHeader(context,
-                Text.translatable(production ? "container.aw2towns.town_manager.production_header" : "container.aw2towns.town_manager.consumption_header"),
-                Text.translatable("container.aw2towns.town_manager.per_day"));
-        int scroll = production ? productionScroll : consumptionScroll;
-        int row = 0;
-        for (int i = scroll; i < ResourceType.values().length && row < visibleRows(); i++, row++) {
-            ResourceType resource = ResourceType.values()[i];
-            int value = production ? handler.productionPerDay(resource) : handler.consumptionPerDay(resource);
-            int yPos = LIST_Y + 18 + row * ROW_HEIGHT;
-            context.drawText(textRenderer, resource.displayName(), LIST_X + 6, yPos, resourceColor(resource), false);
-            context.drawText(textRenderer, Integer.toString(value), LIST_X + 184, yPos, resourceColor(resource), false);
-        }
-    }
-
-    private void drawListHeader(DrawContext context, Text title, Text valueHeader) {
-        context.drawText(textRenderer, title, LIST_X + 6, LIST_Y + 6, TEXT, false);
-        context.drawText(textRenderer, valueHeader, LIST_X + 184, LIST_Y + 6, TEXT, false);
+    private void drawProductionHeader(DrawContext context) {
+        context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.product"), LIST_X + 6, LIST_Y + 6, TEXT, false);
+        context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.made"), LIST_X + 104, LIST_Y + 6, TEXT, false);
+        context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.used"), LIST_X + 150, LIST_Y + 6, TEXT, false);
+        context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.stored"), LIST_X + 200, LIST_Y + 6, TEXT, false);
     }
 
     private void drawListTooltip(DrawContext context, int mouseX, int mouseY) {
-        if (currentTab != Tab.PRODUCTION && currentTab != Tab.CONSUMPTION || !isMouseOverList(mouseX, mouseY)) {
+        if (currentTab != Tab.PRODUCTION || !isMouseOverList(mouseX, mouseY)) {
             return;
         }
         int row = (mouseY - (y + LIST_Y + 18)) / ROW_HEIGHT;
         if (row < 0 || row >= visibleRows()) {
             return;
         }
-        int scroll = currentTab == Tab.PRODUCTION ? productionScroll : consumptionScroll;
-        int index = scroll + row;
+        int index = productionScroll + row;
         if (index < 0 || index >= ResourceType.values().length) {
             return;
         }
         ResourceType resource = ResourceType.values()[index];
-        Text tooltip = currentTab == Tab.PRODUCTION
-                ? Text.translatable("container.aw2towns.town_manager.produced_by", producers(resource))
-                : Text.translatable("container.aw2towns.town_manager.consumed_by", consumers(resource));
+        Text tooltip = Text.translatable("container.aw2towns.town_manager.flow_tooltip", producers(resource), consumers(resource));
         context.drawTooltip(textRenderer, tooltip, mouseX, mouseY);
     }
 
@@ -391,9 +370,7 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
     private enum Tab {
         OVERVIEW("Overview", 56),
         WORKERS("Workers", 52),
-        PRODUCTION("Production", 66),
-        CONSUMPTION("Use", 36),
-        STORAGE("Storage", 54);
+        PRODUCTION("Production", 70);
 
         private final String label;
         private final int width;
