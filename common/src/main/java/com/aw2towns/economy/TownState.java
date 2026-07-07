@@ -356,16 +356,11 @@ public final class TownState {
             return null;
         }
         ToolPlan toolPlan = planToolUse(worker, workstation, tool, outputCapacity, fallbackCapacity);
-        int desiredOutput = desiredOutputFor(output, plan, outputCapacity);
-        if (desiredOutput <= 0) {
-            return null;
-        }
-        if (tool != null && toolPlan.outputCapacity() < desiredOutput) {
+        if (tool != null && toolPlan.outputCapacity() < outputCapacity) {
             addShortage(workstation, tool);
             incrementGoal(tool);
         }
-        desiredOutput = Math.min(desiredOutput, toolPlan.outputCapacity());
-        int outputAmount = Math.min(desiredOutput, inputLimitedOutput(workstation, desiredOutput, inputsPerItem));
+        int outputAmount = Math.min(toolPlan.outputCapacity(), inputLimitedOutput(workstation, outputCapacity, inputsPerItem));
         if (outputAmount <= 0) {
             return null;
         }
@@ -377,15 +372,6 @@ public final class TownState {
             }
         }
         return new ProductionRecipe(worker, workstation, (long) outputAmount * SCALE, inputs, toolPlan.tool(), outputAmount);
-    }
-
-    private int desiredOutputFor(ResourceType output, DailyWorkPlan plan, int outputCapacity) {
-        long remaining = (long) stockpileGoal(output) * SCALE - raw(output) - plan.produced.get(output);
-        if (remaining <= 0L) {
-            return 0;
-        }
-        long neededItems = (remaining + SCALE - 1L) / SCALE;
-        return (int) Math.min(outputCapacity, Math.max(1L, neededItems));
     }
 
     private ProductionRecipe carpenterPlankRecipe(ResourceType resource, DailyWorkPlan plan) {
@@ -450,7 +436,7 @@ public final class TownState {
         return new ToolPlan(tool, (int) Math.min(outputCapacity, availableDurability));
     }
 
-    private int inputLimitedOutput(WorkstationType workstation, int desiredOutput, RecipeInput... inputsPerItem) {
+    private int inputLimitedOutput(WorkstationType workstation, int targetOutput, RecipeInput... inputsPerItem) {
         int limit = Integer.MAX_VALUE;
         for (RecipeInput input : inputsPerItem) {
             if (input.amount() <= 0) {
@@ -462,7 +448,7 @@ public final class TownState {
                 incrementGoalIfEmpty(input.resource());
             }
             int inputLimit = (int) (stored / input.amount());
-            if (inputLimit < desiredOutput) {
+            if (inputLimit < targetOutput) {
                 addShortage(workstation, input.resource());
                 incrementGoal(input.resource());
             }
