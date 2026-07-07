@@ -21,7 +21,7 @@ public final class TownState {
     private static final long DEFAULT_CAPACITY = 1_000_000_000L * SCALE;
     private static final double WHEAT_PER_WORKER_PER_DAY = 3.0D;
     private static final double TOOL_PER_WORKER_PER_DAY = 1.0D;
-    private static final double MINE_IRON_PER_WORKER_PER_DAY = 10.0D;
+    private static final double MINE_IRON_PER_WORKER_PER_DAY = 15.0D;
     private static final double LUMBER_PLANKS_PER_WORKER_PER_DAY = 15.0D;
     private static final double FARM_WHEAT_PER_WORKER_PER_DAY = 15.0D;
     private static final double SMITH_TOOLS_PER_WORKER_PER_DAY = 10.0D / 3.0D;
