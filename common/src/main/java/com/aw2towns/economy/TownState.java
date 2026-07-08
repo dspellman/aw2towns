@@ -352,7 +352,7 @@ public final class TownState {
             case WHEAT -> baseResourceRecipe(resource, WorkstationType.FARM, plan);
             case IRON -> baseResourceRecipe(resource, WorkstationType.MINE, plan);
             case LOG -> baseResourceRecipe(resource, WorkstationType.LUMBER_MILL, plan);
-            case BREAD -> workerRecipe(plan, WorkstationType.BAKER, resource, whole(BAKER_BREAD_PER_WORKER_PER_DAY),
+            case BREAD -> workerRecipe(plan, WorkstationType.BAKER, resource, whole(BAKER_BREAD_PER_WORKER_PER_DAY), 1,
                     input(ResourceType.WHEAT, BREAD_WHEAT_COST),
                     inputScaled(ResourceType.LOG, Math.round(SCALE / (double) BREAD_LOG_COST_DIVISOR)));
             case OAK_PLANKS -> carpenterPlankRecipe(resource, plan);
@@ -362,7 +362,7 @@ public final class TownState {
     }
 
     private ProductionRecipe baseResourceRecipe(ResourceType resource, WorkstationType workstation, DailyWorkPlan plan) {
-        return workerRecipe(plan, workstation, resource, baseOutputFor(workstation), 3, toolFor(workstation));
+        return workerRecipe(plan, workstation, resource, baseOutputFor(workstation), 1, 3, toolFor(workstation));
     }
 
     private int baseOutputFor(WorkstationType workstation) {
@@ -375,13 +375,13 @@ public final class TownState {
     }
 
     private ProductionRecipe workerRecipe(DailyWorkPlan plan, WorkstationType workstation, ResourceType output,
-                                          int outputAmount, RecipeInput... inputs) {
-        return workerRecipe(plan, workstation, output, outputAmount, 0, null, inputs);
+                                          int operationCapacity, int outputPerOperation, RecipeInput... inputs) {
+        return workerRecipe(plan, workstation, output, operationCapacity, outputPerOperation, 0, null, inputs);
     }
 
     private ProductionRecipe workerRecipe(DailyWorkPlan plan, WorkstationType workstation, ResourceType output,
-                                          int outputCapacity, int fallbackCapacity, ResourceType tool,
-                                          RecipeInput... inputsPerItem) {
+                                          int operationCapacity, int outputPerOperation, int fallbackOperations, ResourceType tool,
+                                          RecipeInput... inputsPerOperation) {
         if (plan.availableWorkers.get(workstation) <= 0) {
             return null;
         }
@@ -389,41 +389,42 @@ public final class TownState {
         if (worker == null) {
             return null;
         }
-        ToolPlan toolPlan = planToolUse(worker, workstation, tool, outputCapacity, fallbackCapacity, plan);
-        if (tool != null && toolPlan.outputCapacity() < outputCapacity) {
+        ToolPlan toolPlan = planToolUse(worker, workstation, tool, operationCapacity, fallbackOperations, plan);
+        if (tool != null && toolPlan.operationCapacity() < operationCapacity) {
             addShortage(workstation, tool);
             recordDeficit(plan, tool);
         }
-        int outputAmount = Math.min(toolPlan.outputCapacity(), inputLimitedOutput(workstation, outputCapacity, plan, inputsPerItem));
-        if (outputAmount <= 0) {
+        int operationAmount = Math.min(toolPlan.operationCapacity(), inputLimitedOperations(workstation, toolPlan.operationCapacity(), plan, inputsPerOperation));
+        if (operationAmount <= 0) {
             return null;
         }
+        int outputAmount = operationAmount * outputPerOperation;
         List<RecipeInput> inputs = new ArrayList<>();
-        for (RecipeInput input : inputsPerItem) {
-            long amount = input.amount() * outputAmount;
+        for (RecipeInput input : inputsPerOperation) {
+            long amount = input.amount() * operationAmount;
             if (amount > 0) {
                 inputs.add(new RecipeInput(input.resource(), amount));
             }
         }
-        return new ProductionRecipe(worker, workstation, (long) outputAmount * SCALE, inputs, toolPlan.tool(), outputAmount);
+        return new ProductionRecipe(worker, workstation, (long) outputAmount * SCALE, inputs, toolPlan.tool(), operationAmount);
     }
 
     private ProductionRecipe carpenterPlankRecipe(ResourceType resource, DailyWorkPlan plan) {
         return workerRecipe(plan, WorkstationType.CARPENTER, resource,
-                whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY * PLANKS_PER_LOG),
+                whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY), (int) PLANKS_PER_LOG,
                 (int) BOOTSTRAP_OUTPUT_PER_WORKER_PER_DAY, toolFor(WorkstationType.CARPENTER),
-                inputScaled(ResourceType.LOG, SCALE / PLANKS_PER_LOG));
+                input(ResourceType.LOG, 1L));
     }
 
     private ProductionRecipe carpenterStickRecipe(ResourceType resource, DailyWorkPlan plan) {
         return workerRecipe(plan, WorkstationType.CARPENTER, resource,
-                whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY * STICKS_PER_ACTION),
+                whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY), (int) STICKS_PER_ACTION,
                 (int) BOOTSTRAP_OUTPUT_PER_WORKER_PER_DAY, toolFor(WorkstationType.CARPENTER),
-                inputScaled(ResourceType.OAK_PLANKS, SCALE * STICK_PLANK_COST / STICKS_PER_ACTION));
+                input(ResourceType.OAK_PLANKS, STICK_PLANK_COST));
     }
 
     private ProductionRecipe blacksmithRecipe(ResourceType resource, DailyWorkPlan plan) {
-        return workerRecipe(plan, WorkstationType.BLACKSMITH, resource, whole(SMITH_TOOLS_PER_WORKER_PER_DAY),
+        return workerRecipe(plan, WorkstationType.BLACKSMITH, resource, whole(SMITH_TOOLS_PER_WORKER_PER_DAY), 1,
                 (int) BOOTSTRAP_OUTPUT_PER_WORKER_PER_DAY, toolFor(WorkstationType.BLACKSMITH),
                 input(ResourceType.IRON, TOOL_IRON_COST),
                 input(ResourceType.STICK, TOOL_STICK_COST));
@@ -455,25 +456,25 @@ public final class TownState {
     }
 
     private ToolPlan planToolUse(TownWorker worker, WorkstationType workstation, ResourceType tool,
-                                 int outputCapacity, int fallbackCapacity, DailyWorkPlan plan) {
+                                 int operationCapacity, int fallbackOperations, DailyWorkPlan plan) {
         if (tool == null) {
-            return new ToolPlan(null, outputCapacity);
+            return new ToolPlan(null, operationCapacity);
         }
         int currentDurability = worker.toolDurability(tool);
         int storedTools = storedWhole(tool);
         if (currentDurability <= 0 && storedTools <= 0) {
             addShortage(workstation, tool);
             recordDeficitIfEmpty(plan, tool);
-            return new ToolPlan(null, fallbackCapacity);
+            return new ToolPlan(null, fallbackOperations);
         }
         long availableDurability = (long) currentDurability + (long) storedTools * TownWorker.DEFAULT_TOOL_DURABILITY;
-        return new ToolPlan(tool, (int) Math.min(outputCapacity, availableDurability));
+        return new ToolPlan(tool, (int) Math.min(operationCapacity, availableDurability));
     }
 
-    private int inputLimitedOutput(WorkstationType workstation, int targetOutput, DailyWorkPlan plan,
-                                   RecipeInput... inputsPerItem) {
+    private int inputLimitedOperations(WorkstationType workstation, int targetOperations, DailyWorkPlan plan,
+                                       RecipeInput... inputsPerOperation) {
         int limit = Integer.MAX_VALUE;
-        for (RecipeInput input : inputsPerItem) {
+        for (RecipeInput input : inputsPerOperation) {
             if (input.amount() <= 0) {
                 continue;
             }
@@ -483,7 +484,7 @@ public final class TownState {
                 recordDeficitIfEmpty(plan, input.resource());
             }
             int inputLimit = (int) (stored / input.amount());
-            if (inputLimit < targetOutput) {
+            if (inputLimit < targetOperations) {
                 addShortage(workstation, input.resource());
                 recordDeficit(plan, input.resource());
             }
@@ -668,17 +669,16 @@ public final class TownState {
         if (producer == null) {
             return 0L;
         }
-        return (long) workers(producer) * outputCapacityFor(resource);
+        return (long) workers(producer) * operationCapacityFor(resource);
     }
 
-    private int outputCapacityFor(ResourceType resource) {
+    private int operationCapacityFor(ResourceType resource) {
         return switch (resource) {
             case WHEAT -> whole(FARM_WHEAT_PER_WORKER_PER_DAY);
             case IRON -> whole(MINE_IRON_PER_WORKER_PER_DAY);
             case LOG -> whole(LUMBER_LOGS_PER_WORKER_PER_DAY);
             case BREAD -> whole(BAKER_BREAD_PER_WORKER_PER_DAY);
-            case OAK_PLANKS -> whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY * PLANKS_PER_LOG);
-            case STICK -> whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY * STICKS_PER_ACTION);
+            case OAK_PLANKS, STICK -> whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY);
             case PICKAXE, AXE, HOE, SAW, HAMMER -> whole(SMITH_TOOLS_PER_WORKER_PER_DAY);
         };
     }
@@ -1395,7 +1395,7 @@ public final class TownState {
     private record ProductionRecipe(TownWorker worker, WorkstationType workstation, long output,
                                     List<RecipeInput> inputs, ResourceType tool, int toolDurabilityUsed) {}
 
-    private record ToolPlan(ResourceType tool, int outputCapacity) {}
+    private record ToolPlan(ResourceType tool, int operationCapacity) {}
 
     private record RecipeInput(ResourceType resource, long amount) {}
 
