@@ -9,13 +9,7 @@ public enum ResourceType {
     LOG("log"),
     IRON("iron"),
     OAK_PLANKS("oak_planks"),
-    STICK("stick"),
-    PICKAXE("pickaxe"),
-    AXE("axe"),
-    HOE("hoe"),
-    SAW("saw"),
-    UTENSILS("utensils"),
-    HAMMER("hammer");
+    TOOLS("tools");
 
     private final String id;
 

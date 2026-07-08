@@ -34,10 +34,11 @@ public final class TownState {
     private static final long BREAD_WHEAT_COST = 3L;
     private static final long BREAD_LOG_COST_DIVISOR = 4L;
     private static final long PLANKS_PER_LOG = 4L;
-    private static final long STICK_PLANK_COST = 2L;
-    private static final long STICKS_PER_ACTION = 4L;
     private static final long TOOL_IRON_COST = 3L;
-    private static final long TOOL_STICK_COST = 2L;
+    private static final long TOOL_PLANK_COST = 2L;
+    private static final String[] LEGACY_TOOL_IDS = {
+            "pickaxe", "axe", "hoe", "saw", "utensils", "hammer"
+    };
 
     private final String id;
     private String name;
@@ -403,9 +404,7 @@ public final class TownState {
                     input(ResourceType.WHEAT, BREAD_WHEAT_COST),
                     inputScaled(ResourceType.LOG, Math.round(SCALE / (double) BREAD_LOG_COST_DIVISOR)));
             case OAK_PLANKS -> carpenterPlankRecipe(resource, plan);
-            case STICK -> carpenterStickRecipe(resource, plan);
-            case UTENSILS -> carpenterUtensilsRecipe(resource, plan);
-            case PICKAXE, AXE, HOE, SAW, HAMMER -> blacksmithRecipe(resource, plan);
+            case TOOLS -> blacksmithRecipe(resource, plan);
         };
     }
 
@@ -467,26 +466,11 @@ public final class TownState {
                 input(ResourceType.LOG, 1L));
     }
 
-    private ProductionRecipe carpenterStickRecipe(ResourceType resource, DailyWorkPlan plan) {
-        return workerRecipe(plan, WorkstationType.CARPENTER, resource,
-                whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY), (int) STICKS_PER_ACTION,
-                (int) BOOTSTRAP_OUTPUT_PER_WORKER_PER_DAY, toolFor(WorkstationType.CARPENTER),
-                input(ResourceType.OAK_PLANKS, STICK_PLANK_COST));
-    }
-
-    private ProductionRecipe carpenterUtensilsRecipe(ResourceType resource, DailyWorkPlan plan) {
-        return workerRecipe(plan, WorkstationType.CARPENTER, resource,
-                whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY), 1,
-                (int) BOOTSTRAP_OUTPUT_PER_WORKER_PER_DAY, toolFor(WorkstationType.CARPENTER),
-                input(ResourceType.STICK, 2L),
-                input(ResourceType.OAK_PLANKS, 2L));
-    }
-
     private ProductionRecipe blacksmithRecipe(ResourceType resource, DailyWorkPlan plan) {
         return workerRecipe(plan, WorkstationType.BLACKSMITH, resource, whole(SMITH_TOOLS_PER_WORKER_PER_DAY), 1,
                 (int) BOOTSTRAP_OUTPUT_PER_WORKER_PER_DAY, toolFor(WorkstationType.BLACKSMITH),
                 input(ResourceType.IRON, TOOL_IRON_COST),
-                input(ResourceType.STICK, TOOL_STICK_COST));
+                input(ResourceType.OAK_PLANKS, TOOL_PLANK_COST));
     }
 
     private ResourceType toolFor(WorkstationType workstation) {
@@ -494,12 +478,7 @@ public final class TownState {
             return null;
         }
         return switch (workstation) {
-            case FARM -> ResourceType.HOE;
-            case BAKER -> ResourceType.UTENSILS;
-            case MINE -> ResourceType.PICKAXE;
-            case LUMBER_MILL -> ResourceType.AXE;
-            case CARPENTER -> ResourceType.SAW;
-            case BLACKSMITH -> ResourceType.HAMMER;
+            case FARM, BAKER, MINE, LUMBER_MILL, CARPENTER, BLACKSMITH -> ResourceType.TOOLS;
             default -> null;
         };
     }
@@ -698,13 +677,9 @@ public final class TownState {
                     input(ResourceType.WHEAT, whole(BAKER_BREAD_PER_WORKER_PER_DAY) * BREAD_WHEAT_COST),
                     inputScaled(ResourceType.LOG, Math.round(whole(BAKER_BREAD_PER_WORKER_PER_DAY) * SCALE / (double) BREAD_LOG_COST_DIVISOR)));
             case OAK_PLANKS -> List.of(input(ResourceType.LOG, whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY)));
-            case STICK -> List.of(input(ResourceType.OAK_PLANKS, whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY * STICK_PLANK_COST)));
-            case UTENSILS -> List.of(
-                    input(ResourceType.STICK, whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY * 2L)),
-                    input(ResourceType.OAK_PLANKS, whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY * 2L)));
-            case PICKAXE, AXE, HOE, SAW, HAMMER -> List.of(
+            case TOOLS -> List.of(
                     input(ResourceType.IRON, whole(SMITH_TOOLS_PER_WORKER_PER_DAY * TOOL_IRON_COST)),
-                    input(ResourceType.STICK, whole(SMITH_TOOLS_PER_WORKER_PER_DAY * TOOL_STICK_COST)));
+                    input(ResourceType.OAK_PLANKS, whole(SMITH_TOOLS_PER_WORKER_PER_DAY * TOOL_PLANK_COST)));
             default -> List.of();
         };
     }
@@ -715,8 +690,8 @@ public final class TownState {
             case BREAD -> WorkstationType.BAKER;
             case LOG -> WorkstationType.LUMBER_MILL;
             case IRON -> WorkstationType.MINE;
-            case OAK_PLANKS, STICK, UTENSILS -> WorkstationType.CARPENTER;
-            case PICKAXE, AXE, HOE, SAW, HAMMER -> WorkstationType.BLACKSMITH;
+            case OAK_PLANKS -> WorkstationType.CARPENTER;
+            case TOOLS -> WorkstationType.BLACKSMITH;
         };
     }
 
@@ -744,8 +719,8 @@ public final class TownState {
             case IRON -> whole(MINE_IRON_PER_WORKER_PER_DAY);
             case LOG -> whole(LUMBER_LOGS_PER_WORKER_PER_DAY);
             case BREAD -> whole(BAKER_BREAD_PER_WORKER_PER_DAY);
-            case OAK_PLANKS, STICK, UTENSILS -> whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY);
-            case PICKAXE, AXE, HOE, SAW, HAMMER -> whole(SMITH_TOOLS_PER_WORKER_PER_DAY);
+            case OAK_PLANKS -> whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY);
+            case TOOLS -> whole(SMITH_TOOLS_PER_WORKER_PER_DAY);
         };
     }
 
@@ -819,7 +794,7 @@ public final class TownState {
         }
         WorkDemand demand = new WorkDemand(WorkstationType.BLACKSMITH, workstation.workers(), workstation.priority());
         demand.add(ResourceType.IRON, tools * TOOL_IRON_COST);
-        demand.add(ResourceType.STICK, tools * TOOL_STICK_COST);
+        demand.add(ResourceType.OAK_PLANKS, tools * TOOL_PLANK_COST);
         return demand;
     }
 
@@ -843,13 +818,13 @@ public final class TownState {
         List<WorkDemand> demands = new ArrayList<>();
         long bread = cycle.perStep(BREAD_PER_WORKER_PER_DAY);
         long tool = cycle.perStep(TOOL_PER_WORKER_PER_DAY);
-        addDemand(demands, WorkstationType.FARM, ResourceType.BREAD, bread, ResourceType.HOE, tool);
-        addDemand(demands, WorkstationType.BAKER, ResourceType.BREAD, bread, null, 0L);
-        addDemand(demands, WorkstationType.MINE, ResourceType.BREAD, bread, ResourceType.PICKAXE, tool);
-        addDemand(demands, WorkstationType.LUMBER_MILL, ResourceType.BREAD, bread, ResourceType.AXE, tool);
-        addDemand(demands, WorkstationType.CARPENTER, ResourceType.BREAD, bread, ResourceType.SAW, tool);
+        addDemand(demands, WorkstationType.FARM, ResourceType.BREAD, bread, ResourceType.TOOLS, tool);
+        addDemand(demands, WorkstationType.BAKER, ResourceType.BREAD, bread, ResourceType.TOOLS, tool);
+        addDemand(demands, WorkstationType.MINE, ResourceType.BREAD, bread, ResourceType.TOOLS, tool);
+        addDemand(demands, WorkstationType.LUMBER_MILL, ResourceType.BREAD, bread, ResourceType.TOOLS, tool);
+        addDemand(demands, WorkstationType.CARPENTER, ResourceType.BREAD, bread, ResourceType.TOOLS, tool);
         addDemand(demands, WorkstationType.COURIER, ResourceType.BREAD, bread, null, 0L);
-        addDemand(demands, WorkstationType.BLACKSMITH, ResourceType.BREAD, bread, ResourceType.HAMMER, tool);
+        addDemand(demands, WorkstationType.BLACKSMITH, ResourceType.BREAD, bread, ResourceType.TOOLS, tool);
         return demands;
     }
 
@@ -937,14 +912,6 @@ public final class TownState {
         int shortageFlags = 0;
         while (actions - completed > 0) {
             long action = Math.min(SCALE, actions - completed);
-            if (shouldMakeSticks() && raw(ResourceType.OAK_PLANKS) >= action * STICK_PLANK_COST
-                    && transport.canMove(action * STICKS_PER_ACTION)) {
-                consume(ResourceType.OAK_PLANKS, action * STICK_PLANK_COST);
-                transport.tryMove(action * STICKS_PER_ACTION);
-                add(ResourceType.STICK, action * STICKS_PER_ACTION);
-                completed += action;
-                continue;
-            }
             if (raw(ResourceType.LOG) >= action && transport.canMove(action * PLANKS_PER_LOG)) {
                 consume(ResourceType.LOG, action);
                 transport.tryMove(action * PLANKS_PER_LOG);
@@ -956,9 +923,6 @@ public final class TownState {
                 transport.markOverflow(action);
             }
             shortageFlags |= 1 << ResourceType.LOG.ordinal();
-            if (shouldMakeSticks()) {
-                shortageFlags |= 1 << ResourceType.OAK_PLANKS.ordinal();
-            }
             break;
         }
 
@@ -966,85 +930,11 @@ public final class TownState {
         carpenter.setShortageFlags(shortageFlags);
     }
 
-    private boolean shouldMakeSticks() {
-        return raw(ResourceType.STICK) < (long) consumptionPerDay(ResourceType.STICK) * SCALE;
-    }
-
     private void addProducedTools(EnumMap<ResourceType, Long> produced, long totalTools) {
         if (totalTools <= 0) {
             return;
         }
-
-        long remaining = totalTools;
-        while (remaining > 0) {
-            ResourceType target = toolTargetForProduced(produced);
-            long amount = Math.min(SCALE, remaining);
-            produced.put(target, produced.get(target) + amount);
-            remaining -= amount;
-        }
-    }
-
-    private ResourceType toolTargetForProduced(EnumMap<ResourceType, Long> produced) {
-        ResourceType protectedHammer = protectedHammerTarget(raw(ResourceType.HAMMER) + produced.get(ResourceType.HAMMER));
-        if (protectedHammer != null) {
-            return protectedHammer;
-        }
-
-        ResourceType bestDeficit = null;
-        long bestDeficitAmount = 0L;
-        for (ResourceType tool : toolResources()) {
-            long needed = (long) consumptionPerDay(tool) * SCALE;
-            long available = raw(tool) + produced.get(tool);
-            long deficit = needed - available;
-            if (deficit > bestDeficitAmount) {
-                bestDeficitAmount = deficit;
-                bestDeficit = tool;
-            }
-        }
-        if (bestDeficit != null) {
-            return bestDeficit;
-        }
-
-        ResourceType lowest = ResourceType.PICKAXE;
-        long lowestAmount = Long.MAX_VALUE;
-        for (ResourceType tool : toolResources()) {
-            long amount = raw(tool) + produced.get(tool);
-            if (amount < lowestAmount) {
-                lowestAmount = amount;
-                lowest = tool;
-            }
-        }
-        return lowest;
-    }
-
-    private ResourceType[] toolResources() {
-        return new ResourceType[] {
-                ResourceType.PICKAXE,
-                ResourceType.AXE,
-                ResourceType.HOE,
-                ResourceType.SAW,
-                ResourceType.HAMMER
-        };
-    }
-
-    private ResourceType[] workerToolResources() {
-        return new ResourceType[] {
-                ResourceType.PICKAXE,
-                ResourceType.AXE,
-                ResourceType.HOE,
-                ResourceType.SAW,
-                ResourceType.UTENSILS,
-                ResourceType.HAMMER
-        };
-    }
-
-    private ResourceType protectedHammerTarget(long availableHammers) {
-        int blacksmiths = workstation(WorkstationType.BLACKSMITH).workers();
-        if (blacksmiths <= 0) {
-            return null;
-        }
-        long target = (long) (blacksmiths + 1) * SCALE;
-        return availableHammers < target ? ResourceType.HAMMER : null;
+        produced.put(ResourceType.TOOLS, produced.get(ResourceType.TOOLS) + totalTools);
     }
 
     private void addProduced(EnumMap<ResourceType, Long> produced, ResourceType resource, long base, double factor) {
@@ -1104,14 +994,8 @@ public final class TownState {
     private void addCarpenterProductionRates(int actions) {
         int remaining = Math.max(0, actions);
         while (remaining > 0) {
-            if (productionPerDay(ResourceType.STICK) < consumptionPerDay(ResourceType.STICK)
-                    && projectedPlanks() >= STICK_PLANK_COST) {
-                productionPerDay.put(ResourceType.STICK, productionPerDay.get(ResourceType.STICK) + (int) STICKS_PER_ACTION);
-                consumptionPerDay.put(ResourceType.OAK_PLANKS, consumptionPerDay.get(ResourceType.OAK_PLANKS) + (int) STICK_PLANK_COST);
-            } else {
-                productionPerDay.put(ResourceType.OAK_PLANKS, productionPerDay.get(ResourceType.OAK_PLANKS) + (int) PLANKS_PER_LOG);
-                consumptionPerDay.put(ResourceType.LOG, consumptionPerDay.get(ResourceType.LOG) + 1);
-            }
+            productionPerDay.put(ResourceType.OAK_PLANKS, productionPerDay.get(ResourceType.OAK_PLANKS) + (int) PLANKS_PER_LOG);
+            consumptionPerDay.put(ResourceType.LOG, consumptionPerDay.get(ResourceType.LOG) + 1);
             remaining--;
         }
     }
@@ -1126,43 +1010,7 @@ public final class TownState {
         if (totalTools <= 0) {
             return;
         }
-        int remaining = totalTools;
-        while (remaining > 0) {
-            ResourceType target = toolTargetForDailyRates();
-            productionPerDay.put(target, productionPerDay.get(target) + 1);
-            remaining--;
-        }
-    }
-
-    private ResourceType toolTargetForDailyRates() {
-        ResourceType protectedHammer = protectedHammerTarget((long) (resource(ResourceType.HAMMER) + productionPerDay(ResourceType.HAMMER)) * SCALE);
-        if (protectedHammer != null) {
-            return protectedHammer;
-        }
-
-        ResourceType bestDeficit = null;
-        int bestDeficitAmount = 0;
-        for (ResourceType tool : toolResources()) {
-            int deficit = consumptionPerDay(tool) - productionPerDay(tool);
-            if (deficit > bestDeficitAmount) {
-                bestDeficitAmount = deficit;
-                bestDeficit = tool;
-            }
-        }
-        if (bestDeficit != null) {
-            return bestDeficit;
-        }
-
-        ResourceType lowest = ResourceType.PICKAXE;
-        int lowestAmount = Integer.MAX_VALUE;
-        for (ResourceType tool : toolResources()) {
-            int amount = resource(tool) + productionPerDay(tool);
-            if (amount < lowestAmount) {
-                lowestAmount = amount;
-                lowest = tool;
-            }
-        }
-        return lowest;
+        productionPerDay.put(ResourceType.TOOLS, productionPerDay.get(ResourceType.TOOLS) + totalTools);
     }
 
     private int shortageFlags(WorkDemand demand) {
@@ -1317,45 +1165,7 @@ public final class TownState {
         if (previous == assignment) {
             return;
         }
-        retargetWorkerTool(worker, previous, assignment);
         worker.assign(assignment);
-    }
-
-    private void retargetWorkerTool(TownWorker worker, WorkstationType previous, WorkstationType assignment) {
-        ResourceType targetTool = toolFor(assignment);
-        if (targetTool == null) {
-            return;
-        }
-        ResourceType previousTool = toolFor(previous);
-        if (previousTool == targetTool) {
-            return;
-        }
-        ResourceType carriedTool = bestHeldTool(worker, targetTool);
-        if (carriedTool == null) {
-            return;
-        }
-        int durability = worker.toolDurability(carriedTool);
-        if (durability <= 0) {
-            return;
-        }
-        worker.setToolDurability(targetTool, Math.max(worker.toolDurability(targetTool), durability));
-        worker.setToolDurability(carriedTool, 0);
-    }
-
-    private ResourceType bestHeldTool(TownWorker worker, ResourceType ignoredTool) {
-        ResourceType bestTool = null;
-        int bestDurability = 0;
-        for (ResourceType tool : workerToolResources()) {
-            if (tool == ignoredTool) {
-                continue;
-            }
-            int durability = worker.toolDurability(tool);
-            if (durability > bestDurability) {
-                bestDurability = durability;
-                bestTool = tool;
-            }
-        }
-        return bestTool;
     }
 
     private void syncWorkstationWorkerCounts() {
@@ -1484,18 +1294,20 @@ public final class TownState {
             for (ResourceType resource : ResourceType.values()) {
                 town.resourceRaw(resource, storageNbt.getLong(resource.id()));
             }
+            if (!storageNbt.contains(ResourceType.TOOLS.id())) {
+                long legacyTools = 0L;
+                for (String legacyToolId : LEGACY_TOOL_IDS) {
+                    legacyTools += storageNbt.getLong(legacyToolId);
+                }
+                town.resourceRaw(ResourceType.TOOLS, legacyTools);
+            }
         } else {
             NbtCompound oldResources = nbt.getCompound("resources");
             town.resourceRaw(ResourceType.WHEAT, oldResources.getLong("food"));
             town.resourceRaw(ResourceType.IRON, oldResources.getLong("raw_iron"));
             town.resourceRaw(ResourceType.OAK_PLANKS, oldResources.getLong("wood"));
             long tools = oldResources.getLong("tools");
-            town.resourceRaw(ResourceType.PICKAXE, tools);
-            town.resourceRaw(ResourceType.AXE, tools);
-            town.resourceRaw(ResourceType.HOE, tools);
-            town.resourceRaw(ResourceType.SAW, tools);
-            town.resourceRaw(ResourceType.UTENSILS, tools);
-            town.resourceRaw(ResourceType.HAMMER, tools);
+            town.resourceRaw(ResourceType.TOOLS, tools);
         }
 
         NbtCompound productionNbt = nbt.getCompound("productionPerDay");

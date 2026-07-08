@@ -6,6 +6,9 @@ import net.minecraft.nbt.NbtCompound;
 public final class TownWorker {
 
     private static final String UNASSIGNED = "unassigned";
+    private static final String[] LEGACY_TOOLS = {
+            "pickaxe", "axe", "hoe", "saw", "utensils", "hammer"
+    };
     public static final int DEFAULT_TOOL_DURABILITY = 25;
 
     private final int id;
@@ -73,6 +76,15 @@ public final class TownWorker {
                 if (tools.contains(resource.id())) {
                     worker.setToolDurability(resource, tools.getInt(resource.id()));
                 }
+            }
+            if (!tools.contains(ResourceType.TOOLS.id())) {
+                int legacyDurability = 0;
+                for (String legacyTool : LEGACY_TOOLS) {
+                    if (tools.contains(legacyTool)) {
+                        legacyDurability = Math.max(legacyDurability, tools.getInt(legacyTool));
+                    }
+                }
+                worker.setToolDurability(ResourceType.TOOLS, legacyDurability);
             }
         }
         return worker;
