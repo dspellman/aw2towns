@@ -459,6 +459,9 @@ public final class TownState {
     }
 
     private ResourceType toolFor(WorkstationType workstation) {
+        if (workstation == null) {
+            return null;
+        }
         return switch (workstation) {
             case FARM -> ResourceType.HOE;
             case BAKER -> ResourceType.UTENSILS;
