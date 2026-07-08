@@ -331,11 +331,17 @@ public final class TownState {
     }
 
     private void assignNeededProductionFor(ResourceType resource, DailyWorkPlan plan) {
-        while (raw(resource) < (long) stockpileGoal(resource) * SCALE) {
+        while (productionNeedRemaining(resource, plan) > 0L) {
             if (!assignOneWorkerToProduce(resource, plan)) {
                 return;
             }
         }
+    }
+
+    private long productionNeedRemaining(ResourceType resource, DailyWorkPlan plan) {
+        long target = (long) stockpileGoal(resource) * SCALE;
+        long current = dynamicAssignments() ? plan.produced.get(resource) : raw(resource);
+        return target - current;
     }
 
     private void assignIdleProductionFor(ResourceType resource, DailyWorkPlan plan) {
