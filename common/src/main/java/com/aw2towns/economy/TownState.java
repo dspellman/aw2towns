@@ -299,10 +299,12 @@ public final class TownState {
         }
         DailyWorkPlan plan = new DailyWorkPlan();
         List<ResourceType> priorities = dailyProductionPriorities();
-        for (ResourceType resource : priorities) {
-            assignNeededProductionFor(resource, plan);
-        }
-        if (!dynamicAssignments()) {
+        if (dynamicAssignments()) {
+            assignDynamicProductionGoals(priorities, plan);
+        } else {
+            for (ResourceType resource : priorities) {
+                assignNeededProductionFor(resource, plan);
+            }
             for (ResourceType resource : priorities) {
                 assignIdleProductionFor(resource, plan);
             }
@@ -336,6 +338,30 @@ public final class TownState {
                 return;
             }
         }
+    }
+
+    private void assignDynamicProductionGoals(List<ResourceType> priorities, DailyWorkPlan plan) {
+        boolean produced;
+        do {
+            produced = false;
+            for (ResourceType resource : priorities) {
+                while (productionNeedRemaining(resource, plan) > 0L) {
+                    if (!assignOneWorkerToProduce(resource, plan)) {
+                        break;
+                    }
+                    produced = true;
+                }
+            }
+        } while (produced && !allProductionGoalsMet(plan));
+    }
+
+    private boolean allProductionGoalsMet(DailyWorkPlan plan) {
+        for (ResourceType resource : ResourceType.values()) {
+            if (productionNeedRemaining(resource, plan) > 0L) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private long productionNeedRemaining(ResourceType resource, DailyWorkPlan plan) {

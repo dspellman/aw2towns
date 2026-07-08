@@ -19,7 +19,7 @@
   "container.aw2towns.town_manager.production_header": "Produced per day",
   "container.aw2towns.town_manager.consumption_header": "Consumed per day",
   "container.aw2towns.town_manager.product": "Product",
-  "container.aw2towns.town_manager.goal": "Goal",
+  "container.aw2towns.town_manager.goal": "Priority",
   "container.aw2towns.town_manager.made": "Made",
   "container.aw2towns.town_manager.used": "Used",
   "container.aw2towns.town_manager.stored": "Stored",
