@@ -57,6 +57,7 @@ public class TownManagerScreenHandler extends ScreenHandler {
     public static final int BUTTON_CYCLE_PLUS = 29;
     public static final int BUTTON_RESET_BOOTSTRAP = 30;
     public static final int BUTTON_ASSIGNMENT_MODE = 31;
+    private static final int GOAL_MODE_BASE = 100;
     private static final int WORKER_MOVE_BASE = 1000;
     private static final int WORKER_ID_MASK = 0x3FF;
     private static final int WORKER_MOVE_TARGET_UNASSIGNED = WorkstationType.values().length;
@@ -75,7 +76,8 @@ public class TownManagerScreenHandler extends ScreenHandler {
     private static final int IDX_PRODUCTION = IDX_STORAGE + RESOURCE_COUNT;
     private static final int IDX_CONSUMPTION = IDX_PRODUCTION + RESOURCE_COUNT;
     private static final int IDX_STOCKPILE_GOALS = IDX_CONSUMPTION + RESOURCE_COUNT;
-    private static final int IDX_WORKER_IDS = IDX_STOCKPILE_GOALS + RESOURCE_COUNT;
+    private static final int IDX_GOAL_MODES = IDX_STOCKPILE_GOALS + RESOURCE_COUNT;
+    private static final int IDX_WORKER_IDS = IDX_GOAL_MODES + RESOURCE_COUNT;
     private static final int IDX_WORKER_ASSIGNMENTS = IDX_WORKER_IDS + MAX_SYNCED_WORKERS;
     public static final int DATA_COUNT = IDX_WORKER_ASSIGNMENTS + MAX_SYNCED_WORKERS;
 
@@ -125,6 +127,13 @@ public class TownManagerScreenHandler extends ScreenHandler {
         if (id == BUTTON_ASSIGNMENT_MODE) {
             TownState town = TownSavedData.get(serverWorld).firstTown(serverWorld.getTime());
             town.toggleAssignmentMode();
+            TownSavedData.get(serverWorld).markDirty();
+            sendContentUpdates();
+            return true;
+        }
+        if (id >= GOAL_MODE_BASE && id < GOAL_MODE_BASE + RESOURCE_COUNT) {
+            TownState town = TownSavedData.get(serverWorld).firstTown(serverWorld.getTime());
+            town.cycleGoalMode(resource(id - GOAL_MODE_BASE));
             TownSavedData.get(serverWorld).markDirty();
             sendContentUpdates();
             return true;
@@ -214,6 +223,10 @@ public class TownManagerScreenHandler extends ScreenHandler {
         return properties.get(IDX_STOCKPILE_GOALS + resource.ordinal());
     }
 
+    public int goalModeOrdinal(ResourceType resource) {
+        return properties.get(IDX_GOAL_MODES + resource.ordinal());
+    }
+
     public boolean hasLargeEnoughStockpile(ResourceType resource) {
         int consumption = consumptionPerDay(resource);
         return consumption <= 0 || resource(resource) >= consumption * TownState.LARGE_STOCKPILE_DAYS;
@@ -243,6 +256,10 @@ public class TownManagerScreenHandler extends ScreenHandler {
 
     public static int workerSwapButtonId(int workerId, WorkstationType target, int targetWorkerId) {
         return workerMoveButtonId(workerId, target.ordinal(), targetWorkerId);
+    }
+
+    public static int goalModeButtonId(ResourceType resource) {
+        return GOAL_MODE_BASE + resource.ordinal();
     }
 
     private static int workerMoveButtonId(int workerId, int targetOrdinal, int targetWorkerId) {
@@ -301,6 +318,9 @@ public class TownManagerScreenHandler extends ScreenHandler {
                 }
                 if (index >= IDX_STOCKPILE_GOALS && index < IDX_STOCKPILE_GOALS + RESOURCE_COUNT) {
                     return town.stockpileGoal(resource(index - IDX_STOCKPILE_GOALS));
+                }
+                if (index >= IDX_GOAL_MODES && index < IDX_GOAL_MODES + RESOURCE_COUNT) {
+                    return town.goalModeOrdinal(resource(index - IDX_GOAL_MODES));
                 }
                 if (index >= IDX_WORKER_IDS && index < IDX_WORKER_IDS + MAX_SYNCED_WORKERS) {
                     return town.workerId(index - IDX_WORKER_IDS);

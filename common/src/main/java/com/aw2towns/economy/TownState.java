@@ -51,6 +51,7 @@ public final class TownState {
     private final List<TownWorker> townWorkers = new ArrayList<>();
     private final EnumMap<ResourceType, Long> storage = new EnumMap<>(ResourceType.class);
     private final EnumMap<ResourceType, Integer> stockpileGoals = new EnumMap<>(ResourceType.class);
+    private final EnumMap<ResourceType, GoalMode> goalModes = new EnumMap<>(ResourceType.class);
     private final EnumMap<ResourceType, Integer> productionPerDay = new EnumMap<>(ResourceType.class);
     private final EnumMap<ResourceType, Integer> consumptionPerDay = new EnumMap<>(ResourceType.class);
     private final EnumMap<WorkstationType, TownWorkstationState> workstations = new EnumMap<>(WorkstationType.class);
@@ -61,6 +62,7 @@ public final class TownState {
         for (ResourceType resource : ResourceType.values()) {
             storage.put(resource, 0L);
             stockpileGoals.put(resource, DEFAULT_STOCKPILE_GOAL);
+            goalModes.put(resource, GoalMode.UNLIMITED);
             productionPerDay.put(resource, 0);
             consumptionPerDay.put(resource, 0);
         }
@@ -166,6 +168,15 @@ public final class TownState {
 
     public int stockpileGoal(ResourceType resource) {
         return stockpileGoals.get(resource);
+    }
+
+    public int goalModeOrdinal(ResourceType resource) {
+        return goalMode(resource).ordinal();
+    }
+
+    public void cycleGoalMode(ResourceType resource) {
+        goalModes.put(resource, goalMode(resource).next());
+        refreshDailyRates();
     }
 
     public TownWorkstationState workstation(WorkstationType type) {
@@ -298,10 +309,11 @@ public final class TownState {
         if (dynamicAssignments()) {
             resetDynamicAssignments();
         }
-        DailyWorkPlan plan = new DailyWorkPlan();
+        DailyWorkPlan plan = new DailyWorkPlan(copyConsumptionPerDay());
         List<ResourceType> priorities = dailyProductionPriorities();
         if (dynamicAssignments()) {
             assignDynamicProductionGoals(priorities, plan);
+            assignDynamicExcessProduction(priorities, plan);
         } else {
             for (ResourceType resource : priorities) {
                 assignNeededProductionFor(resource, plan);
@@ -334,6 +346,9 @@ public final class TownState {
     }
 
     private void assignNeededProductionFor(ResourceType resource, DailyWorkPlan plan) {
+        if (!productionModeAllowsAssignment(resource, plan)) {
+            return;
+        }
         while (productionNeedRemaining(resource, plan) > 0L) {
             if (!assignOneWorkerToProduce(resource, plan)) {
                 return;
@@ -366,17 +381,78 @@ public final class TownState {
     }
 
     private long productionNeedRemaining(ResourceType resource, DailyWorkPlan plan) {
+        if (!productionModeAllowsAssignment(resource, plan)) {
+            return 0L;
+        }
         long target = (long) stockpileGoal(resource) * SCALE;
         long current = dynamicAssignments() ? plan.produced.get(resource) : raw(resource);
         return target - current;
     }
 
     private void assignIdleProductionFor(ResourceType resource, DailyWorkPlan plan) {
+        if (!productionModeAllowsAssignment(resource, plan)) {
+            return;
+        }
         while (true) {
             if (!assignOneWorkerToProduce(resource, plan)) {
                 return;
             }
         }
+    }
+
+    private void assignDynamicExcessProduction(List<ResourceType> priorities, DailyWorkPlan plan) {
+        List<ResourceType> favored = priorities.stream()
+                .filter(resource -> goalMode(resource) == GoalMode.FAVORED)
+                .filter(resource -> productionModeAllowsAssignment(resource, plan))
+                .toList();
+        assignRoundRobinExcessProduction(favored, plan);
+        assignPriorityExcessProduction(priorities, plan);
+    }
+
+    private boolean assignRoundRobinExcessProduction(List<ResourceType> resources, DailyWorkPlan plan) {
+        boolean assignedAny = false;
+        boolean assigned;
+        do {
+            assigned = false;
+            for (ResourceType resource : resources) {
+                if (!productionModeAllowsAssignment(resource, plan)) {
+                    continue;
+                }
+                if (assignOneWorkerToProduce(resource, plan)) {
+                    assigned = true;
+                    assignedAny = true;
+                }
+            }
+        } while (assigned);
+        return assignedAny;
+    }
+
+    private void assignPriorityExcessProduction(List<ResourceType> priorities, DailyWorkPlan plan) {
+        boolean assigned;
+        do {
+            assigned = false;
+            for (ResourceType resource : priorities) {
+                if (!productionModeAllowsAssignment(resource, plan)) {
+                    continue;
+                }
+                if (assignOneWorkerToProduce(resource, plan)) {
+                    assigned = true;
+                    break;
+                }
+            }
+        } while (assigned);
+    }
+
+    private boolean productionModeAllowsAssignment(ResourceType resource, DailyWorkPlan plan) {
+        GoalMode mode = goalMode(resource);
+        if (mode == GoalMode.SUSPENDED) {
+            return false;
+        }
+        if (mode == GoalMode.LIMITED) {
+            long previousUsed = (long) plan.previousConsumption.get(resource) * SCALE;
+            return raw(resource) <= previousUsed * 8L;
+        }
+        return true;
     }
 
     private boolean assignOneWorkerToProduce(ResourceType resource, DailyWorkPlan plan) {
@@ -1050,6 +1126,14 @@ public final class TownState {
         return map;
     }
 
+    private EnumMap<ResourceType, Integer> copyConsumptionPerDay() {
+        EnumMap<ResourceType, Integer> map = new EnumMap<>(ResourceType.class);
+        for (ResourceType resource : ResourceType.values()) {
+            map.put(resource, consumptionPerDay.getOrDefault(resource, 0));
+        }
+        return map;
+    }
+
     private long raw(ResourceType resource) {
         return storage.get(resource);
     }
@@ -1133,6 +1217,16 @@ public final class TownState {
                 stockpileGoals.put(resource, DEFAULT_STOCKPILE_GOAL);
             }
         }
+    }
+
+    public void migrateGoalModes() {
+        for (ResourceType resource : ResourceType.values()) {
+            goalModes.putIfAbsent(resource, GoalMode.UNLIMITED);
+        }
+    }
+
+    private GoalMode goalMode(ResourceType resource) {
+        return goalModes.getOrDefault(resource, GoalMode.UNLIMITED);
     }
 
     private void createWorkersFromWorkstationCounts() {
@@ -1257,14 +1351,17 @@ public final class TownState {
         NbtCompound productionNbt = new NbtCompound();
         NbtCompound consumptionNbt = new NbtCompound();
         NbtCompound stockpileGoalNbt = new NbtCompound();
+        NbtCompound goalModeNbt = new NbtCompound();
         for (ResourceType resource : ResourceType.values()) {
             productionNbt.putInt(resource.id(), productionPerDay.get(resource));
             consumptionNbt.putInt(resource.id(), consumptionPerDay.get(resource));
             stockpileGoalNbt.putInt(resource.id(), stockpileGoals.get(resource));
+            goalModeNbt.putString(resource.id(), goalMode(resource).id());
         }
         nbt.put("productionPerDay", productionNbt);
         nbt.put("consumptionPerDay", consumptionNbt);
         nbt.put("stockpileGoals", stockpileGoalNbt);
+        nbt.put("goalModes", goalModeNbt);
 
         NbtList workstationList = new NbtList();
         for (TownWorkstationState workstation : workstations.values()) {
@@ -1313,11 +1410,15 @@ public final class TownState {
         NbtCompound productionNbt = nbt.getCompound("productionPerDay");
         NbtCompound consumptionNbt = nbt.getCompound("consumptionPerDay");
         NbtCompound stockpileGoalNbt = nbt.getCompound("stockpileGoals");
+        NbtCompound goalModeNbt = nbt.getCompound("goalModes");
         for (ResourceType resource : ResourceType.values()) {
             town.productionPerDay.put(resource, productionNbt.getInt(resource.id()));
             town.consumptionPerDay.put(resource, consumptionNbt.getInt(resource.id()));
             if (stockpileGoalNbt.contains(resource.id())) {
                 town.stockpileGoals.put(resource, Math.max(1, stockpileGoalNbt.getInt(resource.id())));
+            }
+            if (goalModeNbt.contains(resource.id())) {
+                town.goalModes.put(resource, GoalMode.byId(goalModeNbt.getString(resource.id())));
             }
         }
 
@@ -1342,11 +1443,13 @@ public final class TownState {
     private final class DailyWorkPlan {
         private final EnumMap<ResourceType, Long> produced = emptyResourceMap();
         private final EnumMap<ResourceType, Long> consumed = emptyResourceMap();
+        private final EnumMap<ResourceType, Integer> previousConsumption;
         private final EnumMap<ResourceType, Boolean> deficitResources = new EnumMap<>(ResourceType.class);
         private final EnumMap<WorkstationType, Integer> availableWorkers = new EnumMap<>(WorkstationType.class);
         private final EnumMap<WorkstationType, Integer> assignedWorkers = new EnumMap<>(WorkstationType.class);
 
-        private DailyWorkPlan() {
+        private DailyWorkPlan(EnumMap<ResourceType, Integer> previousConsumption) {
+            this.previousConsumption = previousConsumption;
             for (ResourceType resource : ResourceType.values()) {
                 deficitResources.put(resource, false);
             }
@@ -1385,6 +1488,37 @@ public final class TownState {
                 }
             }
             return STATIC;
+        }
+    }
+
+    private enum GoalMode {
+        SUSPENDED("suspended"),
+        UNLIMITED("unlimited"),
+        LIMITED("limited"),
+        FAVORED("favored");
+
+        private final String id;
+
+        GoalMode(String id) {
+            this.id = id;
+        }
+
+        private String id() {
+            return id;
+        }
+
+        private GoalMode next() {
+            GoalMode[] modes = values();
+            return modes[(ordinal() + 1) % modes.length];
+        }
+
+        private static GoalMode byId(String id) {
+            for (GoalMode mode : values()) {
+                if (mode.id.equals(id)) {
+                    return mode;
+                }
+            }
+            return UNLIMITED;
         }
     }
 

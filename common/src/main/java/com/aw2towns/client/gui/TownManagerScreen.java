@@ -53,6 +53,8 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
     private static final int RESET_Y = 6;
     private static final int RESET_W = 56;
     private static final int RESET_H = 16;
+    private static final int GOAL_MODE_ICON_X = 78;
+    private static final int GOAL_MODE_ICON_SIZE = 10;
     private static final Identifier WORKER_ICON = AW2Towns.id("textures/gui/worker.png");
 
     private final List<OverviewButton> overviewButtons = new ArrayList<>();
@@ -134,6 +136,13 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
             WorkerIcon workerIcon = closestWorkerIcon((int) mouseX - x, (int) mouseY - y, 0);
             if (workerIcon != null) {
                 draggedWorker = new DraggedWorker(workerIcon.workerId());
+                return true;
+            }
+        }
+        if (button == 0 && currentTab == Tab.PRODUCTION) {
+            int buttonId = goalModeButtonAt((int) mouseX - x, (int) mouseY - y);
+            if (buttonId != 0) {
+                click(buttonId);
                 return true;
             }
         }
@@ -382,6 +391,7 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
             ResourceType resource = ResourceType.values()[i];
             int yPos = LIST_Y + 18 + row * ROW_HEIGHT;
             context.drawText(textRenderer, resource.displayName(), LIST_X + 6, yPos, resourceColor(resource), false);
+            drawGoalModeIcon(context, handler.goalModeOrdinal(resource), LIST_X + GOAL_MODE_ICON_X, yPos - 1);
             context.drawText(textRenderer, Integer.toString(handler.stockpileGoal(resource)), LIST_X + 94, yPos, resourceColor(resource), false);
             context.drawText(textRenderer, Integer.toString(handler.productionPerDay(resource)), LIST_X + 132, yPos, resourceColor(resource), false);
             context.drawText(textRenderer, Integer.toString(handler.consumptionPerDay(resource)), LIST_X + 172, yPos, resourceColor(resource), false);
@@ -395,6 +405,46 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
         context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.made"), LIST_X + 132, LIST_Y + 6, TEXT, false);
         context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.used"), LIST_X + 172, LIST_Y + 6, TEXT, false);
         context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.stored"), LIST_X + 214, LIST_Y + 6, TEXT, false);
+    }
+
+    private void drawGoalModeIcon(DrawContext context, int mode, int iconX, int iconY) {
+        switch (mode) {
+            case 0 -> drawSuspendedIcon(context, iconX, iconY);
+            case 2 -> drawLimitedIcon(context, iconX, iconY);
+            case 3 -> drawFavoredIcon(context, iconX, iconY);
+            default -> drawUnlimitedIcon(context, iconX, iconY);
+        }
+    }
+
+    private void drawSuspendedIcon(DrawContext context, int iconX, int iconY) {
+        context.drawBorder(iconX + 1, iconY + 1, 8, 8, BAD);
+        for (int i = 0; i < 8; i++) {
+            context.fill(iconX + 1 + i, iconY + 1 + i, iconX + 2 + i, iconY + 2 + i, BAD);
+        }
+    }
+
+    private void drawUnlimitedIcon(DrawContext context, int iconX, int iconY) {
+        int color = 0xFF67B7FF;
+        context.fill(iconX + 2, iconY + 5, iconX + 8, iconY + 6, color);
+        context.fill(iconX + 1, iconY + 4, iconX + 3, iconY + 5, color);
+        context.fill(iconX + 1, iconY + 6, iconX + 3, iconY + 7, color);
+        context.fill(iconX + 7, iconY + 4, iconX + 9, iconY + 5, color);
+        context.fill(iconX + 7, iconY + 6, iconX + 9, iconY + 7, color);
+    }
+
+    private void drawLimitedIcon(DrawContext context, int iconX, int iconY) {
+        drawUpArrowIcon(context, iconX, iconY, WARN);
+        context.fill(iconX + 2, iconY + 1, iconX + 8, iconY + 2, WARN);
+    }
+
+    private void drawFavoredIcon(DrawContext context, int iconX, int iconY) {
+        drawUpArrowIcon(context, iconX, iconY, GOOD);
+    }
+
+    private void drawUpArrowIcon(DrawContext context, int iconX, int iconY, int color) {
+        context.fill(iconX + 5, iconY + 2, iconX + 6, iconY + 9, color);
+        context.fill(iconX + 4, iconY + 3, iconX + 7, iconY + 4, color);
+        context.fill(iconX + 3, iconY + 4, iconX + 8, iconY + 5, color);
     }
 
     private void drawDraggedWorker(DrawContext context, int mouseX, int mouseY) {
@@ -440,6 +490,24 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
             return TownManagerScreenHandler.workerMoveToWorkstationButtonId(draggedWorkerId, row.type());
         }
         return 0;
+    }
+
+    private int goalModeButtonAt(int relativeX, int relativeY) {
+        int minX = LIST_X + GOAL_MODE_ICON_X - 1;
+        int minY = LIST_Y + 17;
+        if (relativeX < minX || relativeX >= minX + GOAL_MODE_ICON_SIZE + 2
+                || relativeY < minY || relativeY >= LIST_Y + LIST_H) {
+            return 0;
+        }
+        int row = (relativeY - minY) / ROW_HEIGHT;
+        if (row < 0 || row >= visibleRows()) {
+            return 0;
+        }
+        int index = productionScroll + row;
+        if (index < 0 || index >= ResourceType.values().length) {
+            return 0;
+        }
+        return TownManagerScreenHandler.goalModeButtonId(ResourceType.values()[index]);
     }
 
     private WorkerIcon closestWorkerIcon(int relativeX, int relativeY, int ignoredWorkerId) {
