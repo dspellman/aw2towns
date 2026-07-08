@@ -288,7 +288,10 @@ public final class TownState {
         DailyWorkPlan plan = new DailyWorkPlan();
         List<ResourceType> priorities = dailyProductionPriorities();
         for (ResourceType resource : priorities) {
-            assignProductionFor(resource, plan);
+            assignNeededProductionFor(resource, plan);
+        }
+        for (ResourceType resource : priorities) {
+            assignIdleProductionFor(resource, plan);
         }
         consumeIdleWorkerFood(plan);
         for (ResourceType resource : ResourceType.values()) {
@@ -315,19 +318,34 @@ public final class TownState {
         return stockpileGoal(resource) / (1.0D + resource(resource));
     }
 
-    private void assignProductionFor(ResourceType resource, DailyWorkPlan plan) {
-        while (true) {
-            ProductionRecipe recipe = recipeFor(resource, plan);
-            if (recipe == null) {
+    private void assignNeededProductionFor(ResourceType resource, DailyWorkPlan plan) {
+        while (raw(resource) + plan.produced.get(resource) < (long) stockpileGoal(resource) * SCALE) {
+            if (!assignOneWorkerToProduce(resource, plan)) {
                 return;
             }
-            consumeWorkerFood(recipe, plan);
-            applyToolUse(recipe, plan);
-            consumeRecipeInputs(recipe, plan);
-            plan.availableWorkers.put(recipe.workstation(), plan.availableWorkers.get(recipe.workstation()) - 1);
-            plan.assignedWorkers.put(recipe.workstation(), plan.assignedWorkers.get(recipe.workstation()) + 1);
-            plan.produced.put(resource, plan.produced.get(resource) + recipe.output());
         }
+    }
+
+    private void assignIdleProductionFor(ResourceType resource, DailyWorkPlan plan) {
+        while (true) {
+            if (!assignOneWorkerToProduce(resource, plan)) {
+                return;
+            }
+        }
+    }
+
+    private boolean assignOneWorkerToProduce(ResourceType resource, DailyWorkPlan plan) {
+        ProductionRecipe recipe = recipeFor(resource, plan);
+        if (recipe == null) {
+            return false;
+        }
+        consumeWorkerFood(recipe, plan);
+        applyToolUse(recipe, plan);
+        consumeRecipeInputs(recipe, plan);
+        plan.availableWorkers.put(recipe.workstation(), plan.availableWorkers.get(recipe.workstation()) - 1);
+        plan.assignedWorkers.put(recipe.workstation(), plan.assignedWorkers.get(recipe.workstation()) + 1);
+        plan.produced.put(resource, plan.produced.get(resource) + recipe.output());
+        return true;
     }
 
     private ProductionRecipe recipeFor(ResourceType resource, DailyWorkPlan plan) {
