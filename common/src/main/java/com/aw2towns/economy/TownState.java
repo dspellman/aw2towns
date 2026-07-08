@@ -299,7 +299,7 @@ public final class TownState {
             productionPerDay.put(resource, toWhole(produced));
         }
         adjustDeficitGoals(plan);
-        decrementSurplusGoals();
+        decrementStockedGoals(plan);
         updateWorkstationProductivity(plan);
     }
 
@@ -683,9 +683,9 @@ public final class TownState {
         };
     }
 
-    private void decrementSurplusGoals() {
+    private void decrementStockedGoals(DailyWorkPlan plan) {
         for (ResourceType resource : ResourceType.values()) {
-            if (resource(resource) > stockpileGoal(resource)) {
+            if (!plan.deficitResources.get(resource) && raw(resource) > 0L) {
                 stockpileGoals.put(resource, Math.max(1, stockpileGoal(resource) - 1));
             }
         }
