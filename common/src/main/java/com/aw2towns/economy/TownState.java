@@ -46,6 +46,7 @@ public final class TownState {
     private long lastTransportCapacity;
     private long lastTransportRemaining;
     private int nextWorkerId = 1;
+    private AssignmentMode assignmentMode = AssignmentMode.STATIC;
     private final List<TownWorker> townWorkers = new ArrayList<>();
     private final EnumMap<ResourceType, Long> storage = new EnumMap<>(ResourceType.class);
     private final EnumMap<ResourceType, Integer> stockpileGoals = new EnumMap<>(ResourceType.class);
@@ -130,6 +131,14 @@ public final class TownState {
         return assignment == null ? UNASSIGNED_WORKER_ASSIGNMENT : assignment.ordinal();
     }
 
+    public boolean dynamicAssignments() {
+        return assignmentMode == AssignmentMode.DYNAMIC;
+    }
+
+    public void toggleAssignmentMode() {
+        assignmentMode = dynamicAssignments() ? AssignmentMode.STATIC : AssignmentMode.DYNAMIC;
+    }
+
     public int transportCapacityPerStep() {
         return 0;
     }
@@ -168,13 +177,13 @@ public final class TownState {
             if (worker == null || workers(type) >= MAX_WORKERS_PER_WORKSTATION) {
                 return;
             }
-            worker.assign(type);
+            assignWorker(worker, type);
         } else if (delta < 0) {
             TownWorker worker = lastWorkerAssignedTo(type);
             if (worker == null) {
                 return;
             }
-            worker.assign(null);
+            assignWorker(worker, null);
         }
         syncWorkstationWorkerCounts();
         refreshDailyRates();
@@ -189,7 +198,7 @@ public final class TownState {
         if (worker == null) {
             return false;
         }
-        worker.assign(null);
+        assignWorker(worker, null);
         syncWorkstationWorkerCounts();
         refreshDailyRates();
         return true;
@@ -203,7 +212,7 @@ public final class TownState {
         if (worker.assignment() != target && workers(target) >= MAX_WORKERS_PER_WORKSTATION) {
             return false;
         }
-        worker.assign(target);
+        assignWorker(worker, target);
         syncWorkstationWorkerCounts();
         refreshDailyRates();
         return true;
@@ -219,8 +228,8 @@ public final class TownState {
             return false;
         }
         WorkstationType firstAssignment = first.assignment();
-        first.assign(second.assignment());
-        second.assign(firstAssignment);
+        assignWorker(first, second.assignment());
+        assignWorker(second, firstAssignment);
         syncWorkstationWorkerCounts();
         refreshDailyRates();
         return true;
@@ -285,10 +294,16 @@ public final class TownState {
         lastTransportCapacity = 0L;
         lastTransportRemaining = 0L;
 
+        if (dynamicAssignments()) {
+            resetDynamicAssignments();
+        }
         DailyWorkPlan plan = new DailyWorkPlan();
         List<ResourceType> priorities = dailyProductionPriorities();
         for (ResourceType resource : priorities) {
             assignNeededProductionFor(resource, plan);
+        }
+        if (dynamicAssignments()) {
+            fillDynamicAssignments(priorities, plan);
         }
         for (ResourceType resource : priorities) {
             assignIdleProductionFor(resource, plan);
@@ -353,10 +368,12 @@ public final class TownState {
             case IRON -> baseResourceRecipe(resource, WorkstationType.MINE, plan);
             case LOG -> baseResourceRecipe(resource, WorkstationType.LUMBER_MILL, plan);
             case BREAD -> workerRecipe(plan, WorkstationType.BAKER, resource, whole(BAKER_BREAD_PER_WORKER_PER_DAY), 1,
+                    0, toolFor(WorkstationType.BAKER),
                     input(ResourceType.WHEAT, BREAD_WHEAT_COST),
                     inputScaled(ResourceType.LOG, Math.round(SCALE / (double) BREAD_LOG_COST_DIVISOR)));
             case OAK_PLANKS -> carpenterPlankRecipe(resource, plan);
             case STICK -> carpenterStickRecipe(resource, plan);
+            case UTENSILS -> carpenterUtensilsRecipe(resource, plan);
             case PICKAXE, AXE, HOE, SAW, HAMMER -> blacksmithRecipe(resource, plan);
         };
     }
@@ -382,6 +399,9 @@ public final class TownState {
     private ProductionRecipe workerRecipe(DailyWorkPlan plan, WorkstationType workstation, ResourceType output,
                                           int operationCapacity, int outputPerOperation, int fallbackOperations, ResourceType tool,
                                           RecipeInput... inputsPerOperation) {
+        if (dynamicAssignments()) {
+            ensureDynamicWorkerAvailable(workstation, plan);
+        }
         if (plan.availableWorkers.get(workstation) <= 0) {
             return null;
         }
@@ -423,6 +443,14 @@ public final class TownState {
                 input(ResourceType.OAK_PLANKS, STICK_PLANK_COST));
     }
 
+    private ProductionRecipe carpenterUtensilsRecipe(ResourceType resource, DailyWorkPlan plan) {
+        return workerRecipe(plan, WorkstationType.CARPENTER, resource,
+                whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY), 1,
+                (int) BOOTSTRAP_OUTPUT_PER_WORKER_PER_DAY, toolFor(WorkstationType.CARPENTER),
+                input(ResourceType.STICK, 2L),
+                input(ResourceType.OAK_PLANKS, 2L));
+    }
+
     private ProductionRecipe blacksmithRecipe(ResourceType resource, DailyWorkPlan plan) {
         return workerRecipe(plan, WorkstationType.BLACKSMITH, resource, whole(SMITH_TOOLS_PER_WORKER_PER_DAY), 1,
                 (int) BOOTSTRAP_OUTPUT_PER_WORKER_PER_DAY, toolFor(WorkstationType.BLACKSMITH),
@@ -433,6 +461,7 @@ public final class TownState {
     private ResourceType toolFor(WorkstationType workstation) {
         return switch (workstation) {
             case FARM -> ResourceType.HOE;
+            case BAKER -> ResourceType.UTENSILS;
             case MINE -> ResourceType.PICKAXE;
             case LUMBER_MILL -> ResourceType.AXE;
             case CARPENTER -> ResourceType.SAW;
@@ -636,6 +665,9 @@ public final class TownState {
                     inputScaled(ResourceType.LOG, Math.round(whole(BAKER_BREAD_PER_WORKER_PER_DAY) * SCALE / (double) BREAD_LOG_COST_DIVISOR)));
             case OAK_PLANKS -> List.of(input(ResourceType.LOG, whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY)));
             case STICK -> List.of(input(ResourceType.OAK_PLANKS, whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY * STICK_PLANK_COST)));
+            case UTENSILS -> List.of(
+                    input(ResourceType.STICK, whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY * 2L)),
+                    input(ResourceType.OAK_PLANKS, whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY * 2L)));
             case PICKAXE, AXE, HOE, SAW, HAMMER -> List.of(
                     input(ResourceType.IRON, whole(SMITH_TOOLS_PER_WORKER_PER_DAY * TOOL_IRON_COST)),
                     input(ResourceType.STICK, whole(SMITH_TOOLS_PER_WORKER_PER_DAY * TOOL_STICK_COST)));
@@ -649,7 +681,7 @@ public final class TownState {
             case BREAD -> WorkstationType.BAKER;
             case LOG -> WorkstationType.LUMBER_MILL;
             case IRON -> WorkstationType.MINE;
-            case OAK_PLANKS, STICK -> WorkstationType.CARPENTER;
+            case OAK_PLANKS, STICK, UTENSILS -> WorkstationType.CARPENTER;
             case PICKAXE, AXE, HOE, SAW, HAMMER -> WorkstationType.BLACKSMITH;
         };
     }
@@ -678,7 +710,7 @@ public final class TownState {
             case IRON -> whole(MINE_IRON_PER_WORKER_PER_DAY);
             case LOG -> whole(LUMBER_LOGS_PER_WORKER_PER_DAY);
             case BREAD -> whole(BAKER_BREAD_PER_WORKER_PER_DAY);
-            case OAK_PLANKS, STICK -> whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY);
+            case OAK_PLANKS, STICK, UTENSILS -> whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY);
             case PICKAXE, AXE, HOE, SAW, HAMMER -> whole(SMITH_TOOLS_PER_WORKER_PER_DAY);
         };
     }
@@ -714,6 +746,42 @@ public final class TownState {
                 workstation.setProductivityPercent(100);
             }
         }
+    }
+
+    private void resetDynamicAssignments() {
+        for (TownWorker worker : townWorkers) {
+            assignWorker(worker, null);
+        }
+        syncWorkstationWorkerCounts();
+    }
+
+    private void fillDynamicAssignments(List<ResourceType> priorities, DailyWorkPlan plan) {
+        for (ResourceType resource : priorities) {
+            WorkstationType producer = producerFor(resource);
+            while (unassignedWorkers() > 0 && workers(producer) < MAX_WORKERS_PER_WORKSTATION) {
+                if (!assignDynamicWorkerTo(producer, plan)) {
+                    return;
+                }
+            }
+        }
+    }
+
+    private void ensureDynamicWorkerAvailable(WorkstationType type, DailyWorkPlan plan) {
+        if (type == null || plan.availableWorkers.get(type) > 0 || workers(type) >= MAX_WORKERS_PER_WORKSTATION) {
+            return;
+        }
+        assignDynamicWorkerTo(type, plan);
+    }
+
+    private boolean assignDynamicWorkerTo(WorkstationType type, DailyWorkPlan plan) {
+        TownWorker worker = firstUnassignedWorker();
+        if (worker == null || type == null || workers(type) >= MAX_WORKERS_PER_WORKSTATION) {
+            return false;
+        }
+        assignWorker(worker, type);
+        syncWorkstationWorkerCounts();
+        plan.availableWorkers.put(type, plan.availableWorkers.get(type) + 1);
+        return true;
     }
 
     private WorkDemand buildBlacksmithDemand(SimulationCycle cycle, TransportLoad transport) {
@@ -932,6 +1000,17 @@ public final class TownState {
                 ResourceType.AXE,
                 ResourceType.HOE,
                 ResourceType.SAW,
+                ResourceType.HAMMER
+        };
+    }
+
+    private ResourceType[] workerToolResources() {
+        return new ResourceType[] {
+                ResourceType.PICKAXE,
+                ResourceType.AXE,
+                ResourceType.HOE,
+                ResourceType.SAW,
+                ResourceType.UTENSILS,
                 ResourceType.HAMMER
         };
     }
@@ -1210,6 +1289,52 @@ public final class TownState {
         return worker;
     }
 
+    private void assignWorker(TownWorker worker, WorkstationType assignment) {
+        WorkstationType previous = worker.assignment();
+        if (previous == assignment) {
+            return;
+        }
+        retargetWorkerTool(worker, previous, assignment);
+        worker.assign(assignment);
+    }
+
+    private void retargetWorkerTool(TownWorker worker, WorkstationType previous, WorkstationType assignment) {
+        ResourceType targetTool = toolFor(assignment);
+        if (targetTool == null) {
+            return;
+        }
+        ResourceType previousTool = toolFor(previous);
+        if (previousTool == targetTool) {
+            return;
+        }
+        ResourceType carriedTool = bestHeldTool(worker, targetTool);
+        if (carriedTool == null) {
+            return;
+        }
+        int durability = worker.toolDurability(carriedTool);
+        if (durability <= 0) {
+            return;
+        }
+        worker.setToolDurability(targetTool, Math.max(worker.toolDurability(targetTool), durability));
+        worker.setToolDurability(carriedTool, 0);
+    }
+
+    private ResourceType bestHeldTool(TownWorker worker, ResourceType ignoredTool) {
+        ResourceType bestTool = null;
+        int bestDurability = 0;
+        for (ResourceType tool : workerToolResources()) {
+            if (tool == ignoredTool) {
+                continue;
+            }
+            int durability = worker.toolDurability(tool);
+            if (durability > bestDurability) {
+                bestDurability = durability;
+                bestTool = tool;
+            }
+        }
+        return bestTool;
+    }
+
     private void syncWorkstationWorkerCounts() {
         for (TownWorkstationState workstation : workstations.values()) {
             workstation.setWorkers(0);
@@ -1288,6 +1413,7 @@ public final class TownState {
         nbt.putInt("totalWorkers", totalWorkers);
         nbt.putLong("lastSimulatedGameTime", lastSimulatedGameTime);
         nbt.putInt("nextWorkerId", nextWorkerId);
+        nbt.putString("assignmentMode", assignmentMode.id());
 
         NbtCompound storageNbt = new NbtCompound();
         for (Map.Entry<ResourceType, Long> entry : storage.entrySet()) {
@@ -1326,6 +1452,9 @@ public final class TownState {
         town.totalWorkers = nbt.getInt("totalWorkers");
         town.lastSimulatedGameTime = nbt.getLong("lastSimulatedGameTime");
         town.nextWorkerId = Math.max(1, nbt.getInt("nextWorkerId"));
+        if (nbt.contains("assignmentMode")) {
+            town.assignmentMode = AssignmentMode.byId(nbt.getString("assignmentMode"));
+        }
 
         if (nbt.contains("storage")) {
             NbtCompound storageNbt = nbt.getCompound("storage");
@@ -1342,6 +1471,7 @@ public final class TownState {
             town.resourceRaw(ResourceType.AXE, tools);
             town.resourceRaw(ResourceType.HOE, tools);
             town.resourceRaw(ResourceType.SAW, tools);
+            town.resourceRaw(ResourceType.UTENSILS, tools);
             town.resourceRaw(ResourceType.HAMMER, tools);
         }
 
@@ -1398,6 +1528,30 @@ public final class TownState {
     private record ToolPlan(ResourceType tool, int operationCapacity) {}
 
     private record RecipeInput(ResourceType resource, long amount) {}
+
+    private enum AssignmentMode {
+        STATIC("static"),
+        DYNAMIC("dynamic");
+
+        private final String id;
+
+        AssignmentMode(String id) {
+            this.id = id;
+        }
+
+        private String id() {
+            return id;
+        }
+
+        private static AssignmentMode byId(String id) {
+            for (AssignmentMode mode : values()) {
+                if (mode.id.equals(id)) {
+                    return mode;
+                }
+            }
+            return STATIC;
+        }
+    }
 
     private static final class WorkDemand {
         private final WorkstationType type;

@@ -40,12 +40,16 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
     private static final int WORKER_HEADER_H = 18;
     private static final int WORKER_SLOT_X = 126;
     private static final int WORKER_SLOT_SPACING = 18;
-    private static final int CYCLE_MINUS_X = 126;
-    private static final int CYCLE_VALUE_X = 146;
-    private static final int CYCLE_PLUS_X = 174;
+    private static final int MODE_X = 84;
+    private static final int MODE_Y = 6;
+    private static final int MODE_W = 56;
+    private static final int MODE_H = 16;
+    private static final int CYCLE_MINUS_X = 150;
+    private static final int CYCLE_VALUE_X = 170;
+    private static final int CYCLE_PLUS_X = 198;
     private static final int CYCLE_BUTTON_Y = 8;
     private static final int CYCLE_BUTTON_SIZE = 14;
-    private static final int RESET_X = 214;
+    private static final int RESET_X = 224;
     private static final int RESET_Y = 6;
     private static final int RESET_W = 56;
     private static final int RESET_H = 16;
@@ -60,6 +64,7 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
     private int overviewStatusScroll;
     private int productionScroll;
     private DraggedWorker draggedWorker;
+    private ButtonWidget assignmentModeButton;
 
     public TownManagerScreen(TownManagerScreenHandler handler, PlayerInventory inventory, Text title) {
         super(handler, inventory, title);
@@ -80,6 +85,10 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
                     .build());
             tabX += tab.width + 4;
         }
+        assignmentModeButton = addDrawableChild(ButtonWidget.builder(assignmentModeLabel(),
+                        button -> click(TownManagerScreenHandler.BUTTON_ASSIGNMENT_MODE))
+                .dimensions(x + MODE_X, y + MODE_Y, MODE_W, MODE_H)
+                .build());
         addDrawableChild(ButtonWidget.builder(Text.literal("-"),
                         button -> click(TownManagerScreenHandler.BUTTON_CYCLE_MINUS))
                 .dimensions(x + CYCLE_MINUS_X, y + CYCLE_BUTTON_Y, CYCLE_BUTTON_SIZE, CYCLE_BUTTON_SIZE)
@@ -189,6 +198,9 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
         context.drawText(textRenderer, title, titleX, titleY, TEXT, false);
         context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.prototype_town"),
                 10, 52, TEXT, false);
+        if (assignmentModeButton != null) {
+            assignmentModeButton.setMessage(assignmentModeLabel());
+        }
         if (currentTab == Tab.WORKERS) {
             workerIcons.clear();
             vacantSlots.clear();
@@ -402,6 +414,12 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
                 handler.cycleSeconds()), CYCLE_VALUE_X, 11, MUTED, false);
     }
 
+    private Text assignmentModeLabel() {
+        return Text.translatable(handler.dynamicAssignments()
+                ? "container.aw2towns.town_manager.mode_dynamic"
+                : "container.aw2towns.town_manager.mode_static");
+    }
+
     private int workerDropButtonId(int relativeX, int relativeY, int draggedWorkerId) {
         if (isOverUnassignedHeader(relativeX, relativeY)) {
             return TownManagerScreenHandler.workerMoveToUnassignedButtonId(draggedWorkerId);
@@ -571,7 +589,7 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
             case BREAD -> "Baker";
             case LOG -> "Lumber Mill";
             case IRON -> "Mine";
-            case OAK_PLANKS, STICK -> "Carpenter";
+            case OAK_PLANKS, STICK, UTENSILS -> "Carpenter";
             case PICKAXE, AXE, HOE, SAW, HAMMER -> "Blacksmith";
         };
     }
@@ -582,12 +600,13 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
             case LOG -> "Bakers, carpenters";
             case BREAD -> "All workers";
             case OAK_PLANKS -> "Carpenter";
-            case STICK -> "Blacksmith";
+            case STICK -> "Blacksmith, carpenter";
             case IRON -> "Blacksmith";
             case PICKAXE -> "Mine";
             case AXE -> "Lumber Mill";
             case HOE -> "Farm";
             case SAW -> "Carpenter";
+            case UTENSILS -> "Baker";
             case HAMMER -> "Blacksmith";
         };
     }

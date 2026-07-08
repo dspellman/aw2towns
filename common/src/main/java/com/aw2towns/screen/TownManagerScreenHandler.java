@@ -56,6 +56,7 @@ public class TownManagerScreenHandler extends ScreenHandler {
     public static final int BUTTON_CYCLE_MINUS = 28;
     public static final int BUTTON_CYCLE_PLUS = 29;
     public static final int BUTTON_RESET_BOOTSTRAP = 30;
+    public static final int BUTTON_ASSIGNMENT_MODE = 31;
     private static final int WORKER_MOVE_BASE = 1000;
     private static final int WORKER_ID_MASK = 0x3FF;
     private static final int WORKER_MOVE_TARGET_UNASSIGNED = WorkstationType.values().length;
@@ -65,7 +66,8 @@ public class TownManagerScreenHandler extends ScreenHandler {
     private static final int IDX_TRANSPORT_CAPACITY = 2;
     private static final int IDX_TRANSPORT_REMAINING = 3;
     private static final int IDX_CYCLE_SECONDS = 4;
-    private static final int IDX_WORKERS = 5;
+    private static final int IDX_ASSIGNMENT_MODE = 5;
+    private static final int IDX_WORKERS = 6;
     private static final int IDX_PRIORITIES = IDX_WORKERS + WORKSTATION_COUNT;
     private static final int IDX_PRODUCTIVITY = IDX_PRIORITIES + WORKSTATION_COUNT;
     private static final int IDX_SHORTAGES = IDX_PRODUCTIVITY + WORKSTATION_COUNT;
@@ -120,6 +122,13 @@ public class TownManagerScreenHandler extends ScreenHandler {
             sendContentUpdates();
             return true;
         }
+        if (id == BUTTON_ASSIGNMENT_MODE) {
+            TownState town = TownSavedData.get(serverWorld).firstTown(serverWorld.getTime());
+            town.toggleAssignmentMode();
+            TownSavedData.get(serverWorld).markDirty();
+            sendContentUpdates();
+            return true;
+        }
         ButtonAction action = buttonAction(id);
         if (action == null) {
             return false;
@@ -163,6 +172,10 @@ public class TownManagerScreenHandler extends ScreenHandler {
 
     public int cycleSeconds() {
         return properties.get(IDX_CYCLE_SECONDS);
+    }
+
+    public boolean dynamicAssignments() {
+        return properties.get(IDX_ASSIGNMENT_MODE) != 0;
     }
 
     public int workers(WorkstationType type) {
@@ -261,6 +274,9 @@ public class TownManagerScreenHandler extends ScreenHandler {
                 }
                 if (index == IDX_CYCLE_SECONDS) {
                     return TownSimulationManager.cycleSeconds();
+                }
+                if (index == IDX_ASSIGNMENT_MODE) {
+                    return town.dynamicAssignments() ? 1 : 0;
                 }
                 if (index >= IDX_WORKERS && index < IDX_WORKERS + WORKSTATION_COUNT) {
                     return workstation(town, index - IDX_WORKERS).workers();
