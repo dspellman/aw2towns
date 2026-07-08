@@ -302,11 +302,10 @@ public final class TownState {
         for (ResourceType resource : priorities) {
             assignNeededProductionFor(resource, plan);
         }
-        if (dynamicAssignments()) {
-            fillDynamicAssignments(priorities, plan);
-        }
-        for (ResourceType resource : priorities) {
-            assignIdleProductionFor(resource, plan);
+        if (!dynamicAssignments()) {
+            for (ResourceType resource : priorities) {
+                assignIdleProductionFor(resource, plan);
+            }
         }
         consumeIdleWorkerFood(plan);
         for (ResourceType resource : ResourceType.values()) {
@@ -756,17 +755,6 @@ public final class TownState {
             assignWorker(worker, null);
         }
         syncWorkstationWorkerCounts();
-    }
-
-    private void fillDynamicAssignments(List<ResourceType> priorities, DailyWorkPlan plan) {
-        for (ResourceType resource : priorities) {
-            WorkstationType producer = producerFor(resource);
-            while (unassignedWorkers() > 0 && workers(producer) < MAX_WORKERS_PER_WORKSTATION) {
-                if (!assignDynamicWorkerTo(producer, plan)) {
-                    return;
-                }
-            }
-        }
     }
 
     private void ensureDynamicWorkerAvailable(WorkstationType type, DailyWorkPlan plan) {
