@@ -40,11 +40,15 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
     private static final int WORKER_HEADER_H = 18;
     private static final int WORKER_SLOT_X = 126;
     private static final int WORKER_SLOT_SPACING = 18;
-    private static final int CYCLE_MINUS_X = 220;
-    private static final int CYCLE_VALUE_X = 240;
-    private static final int CYCLE_PLUS_X = 268;
-    private static final int CYCLE_BUTTON_Y = 50;
+    private static final int CYCLE_MINUS_X = 126;
+    private static final int CYCLE_VALUE_X = 146;
+    private static final int CYCLE_PLUS_X = 174;
+    private static final int CYCLE_BUTTON_Y = 8;
     private static final int CYCLE_BUTTON_SIZE = 14;
+    private static final int RESET_X = 214;
+    private static final int RESET_Y = 6;
+    private static final int RESET_W = 56;
+    private static final int RESET_H = 16;
     private static final Identifier WORKER_ICON = AW2Towns.id("textures/gui/worker.png");
 
     private final List<OverviewButton> overviewButtons = new ArrayList<>();
@@ -83,6 +87,10 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
         addDrawableChild(ButtonWidget.builder(Text.literal("+"),
                         button -> click(TownManagerScreenHandler.BUTTON_CYCLE_PLUS))
                 .dimensions(x + CYCLE_PLUS_X, y + CYCLE_BUTTON_Y, CYCLE_BUTTON_SIZE, CYCLE_BUTTON_SIZE)
+                .build());
+        addDrawableChild(ButtonWidget.builder(Text.translatable("container.aw2towns.town_manager.reset_bootstrap"),
+                        button -> click(TownManagerScreenHandler.BUTTON_RESET_BOOTSTRAP))
+                .dimensions(x + RESET_X, y + RESET_Y, RESET_W, RESET_H)
                 .build());
 
         addWorkerButtons(WorkstationType.FARM, TownManagerScreenHandler.BUTTON_FARM_MINUS, TownManagerScreenHandler.BUTTON_FARM_PLUS,
@@ -391,7 +399,7 @@ public class TownManagerScreen extends HandledScreen<TownManagerScreenHandler> {
 
     private void drawCycleSeconds(DrawContext context) {
         context.drawText(textRenderer, Text.translatable("container.aw2towns.town_manager.cycle_seconds",
-                handler.cycleSeconds()), CYCLE_VALUE_X, 53, MUTED, false);
+                handler.cycleSeconds()), CYCLE_VALUE_X, 11, MUTED, false);
     }
 
     private int workerDropButtonId(int relativeX, int relativeY, int draggedWorkerId) {

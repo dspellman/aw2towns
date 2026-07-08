@@ -55,6 +55,7 @@ public class TownManagerScreenHandler extends ScreenHandler {
     public static final int BUTTON_BLACKSMITH_PRIORITY_PLUS = 27;
     public static final int BUTTON_CYCLE_MINUS = 28;
     public static final int BUTTON_CYCLE_PLUS = 29;
+    public static final int BUTTON_RESET_BOOTSTRAP = 30;
     private static final int WORKER_MOVE_BASE = 1000;
     private static final int WORKER_ID_MASK = 0x3FF;
     private static final int WORKER_MOVE_TARGET_UNASSIGNED = WorkstationType.values().length;
@@ -109,6 +110,13 @@ public class TownManagerScreenHandler extends ScreenHandler {
         }
         if (id == BUTTON_CYCLE_MINUS || id == BUTTON_CYCLE_PLUS) {
             TownSimulationManager.adjustCycleSeconds(id == BUTTON_CYCLE_PLUS ? 1 : -1);
+            sendContentUpdates();
+            return true;
+        }
+        if (id == BUTTON_RESET_BOOTSTRAP) {
+            TownState town = TownSavedData.get(serverWorld).firstTown(serverWorld.getTime());
+            town.resetBootstrapEconomy();
+            TownSavedData.get(serverWorld).markDirty();
             sendContentUpdates();
             return true;
         }

@@ -6,6 +6,7 @@
   "container.aw2towns.town_manager.workers_compact": "%sW %s idle",
   "container.aw2towns.town_manager.transport": "Transport: %s/%s",
   "container.aw2towns.town_manager.cycle_seconds": "%ss",
+  "container.aw2towns.town_manager.reset_bootstrap": "Reset",
   "container.aw2towns.town_manager.worker_count": "%s workers",
   "container.aw2towns.town_manager.priority": "Priority %s",
   "container.aw2towns.town_manager.productivity": "%s%%",
