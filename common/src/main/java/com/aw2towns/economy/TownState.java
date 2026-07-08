@@ -296,9 +296,6 @@ public final class TownState {
         consumeIdleWorkerFood(plan);
         for (ResourceType resource : ResourceType.values()) {
             long produced = plan.produced.get(resource);
-            if (produced > 0) {
-                add(resource, produced);
-            }
             productionPerDay.put(resource, toWhole(produced));
         }
         decrementSurplusGoals();
@@ -319,7 +316,7 @@ public final class TownState {
     }
 
     private void assignNeededProductionFor(ResourceType resource, DailyWorkPlan plan) {
-        while (raw(resource) + plan.produced.get(resource) < (long) stockpileGoal(resource) * SCALE) {
+        while (raw(resource) < (long) stockpileGoal(resource) * SCALE) {
             if (!assignOneWorkerToProduce(resource, plan)) {
                 return;
             }
@@ -344,6 +341,7 @@ public final class TownState {
         consumeRecipeInputs(recipe, plan);
         plan.availableWorkers.put(recipe.workstation(), plan.availableWorkers.get(recipe.workstation()) - 1);
         plan.assignedWorkers.put(recipe.workstation(), plan.assignedWorkers.get(recipe.workstation()) + 1);
+        add(resource, recipe.output());
         plan.produced.put(resource, plan.produced.get(resource) + recipe.output());
         return true;
     }
@@ -589,7 +587,91 @@ public final class TownState {
     }
 
     private void recordDeficit(ResourceType resource) {
+        EnumMap<ResourceType, Boolean> visited = new EnumMap<>(ResourceType.class);
+        for (ResourceType type : ResourceType.values()) {
+            visited.put(type, false);
+        }
+        recordDeficit(resource, visited);
+    }
+
+    private void recordDeficit(ResourceType resource, EnumMap<ResourceType, Boolean> visited) {
+        if (visited.get(resource)) {
+            return;
+        }
+        visited.put(resource, true);
         stockpileGoals.put(resource, stockpileGoal(resource) + 1);
+        recordBlockedInputDeficits(resource, visited);
+    }
+
+    private void recordBlockedInputDeficits(ResourceType resource, EnumMap<ResourceType, Boolean> visited) {
+        for (RecipeInput input : fullBatchInputsFor(resource)) {
+            if (raw(input.resource()) < input.amount()) {
+                recordDeficit(input.resource(), visited);
+            }
+        }
+        WorkstationType producer = producerFor(resource);
+        if (producer == null) {
+            return;
+        }
+        ResourceType tool = toolFor(producer);
+        if (tool != null && tool != resource && availableToolDurability(producer, tool) < fullToolDurabilityNeededFor(resource)) {
+            recordDeficit(tool, visited);
+        }
+    }
+
+    private List<RecipeInput> fullBatchInputsFor(ResourceType resource) {
+        return switch (resource) {
+            case BREAD -> List.of(
+                    input(ResourceType.WHEAT, whole(BAKER_BREAD_PER_WORKER_PER_DAY) * BREAD_WHEAT_COST),
+                    inputScaled(ResourceType.LOG, Math.round(whole(BAKER_BREAD_PER_WORKER_PER_DAY) * SCALE / (double) BREAD_LOG_COST_DIVISOR)));
+            case OAK_PLANKS -> List.of(input(ResourceType.LOG, whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY)));
+            case STICK -> List.of(input(ResourceType.OAK_PLANKS, whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY * STICK_PLANK_COST)));
+            case PICKAXE, AXE, HOE, SAW, HAMMER -> List.of(
+                    input(ResourceType.IRON, whole(SMITH_TOOLS_PER_WORKER_PER_DAY * TOOL_IRON_COST)),
+                    input(ResourceType.STICK, whole(SMITH_TOOLS_PER_WORKER_PER_DAY * TOOL_STICK_COST)));
+            default -> List.of();
+        };
+    }
+
+    private WorkstationType producerFor(ResourceType resource) {
+        return switch (resource) {
+            case WHEAT -> WorkstationType.FARM;
+            case BREAD -> WorkstationType.BAKER;
+            case LOG -> WorkstationType.LUMBER_MILL;
+            case IRON -> WorkstationType.MINE;
+            case OAK_PLANKS, STICK -> WorkstationType.CARPENTER;
+            case PICKAXE, AXE, HOE, SAW, HAMMER -> WorkstationType.BLACKSMITH;
+        };
+    }
+
+    private long availableToolDurability(WorkstationType workstation, ResourceType tool) {
+        long durability = (long) storedWhole(tool) * TownWorker.DEFAULT_TOOL_DURABILITY;
+        for (TownWorker worker : townWorkers) {
+            if (worker.assignment() == workstation) {
+                durability += worker.toolDurability(tool);
+            }
+        }
+        return durability;
+    }
+
+    private long fullToolDurabilityNeededFor(ResourceType resource) {
+        WorkstationType producer = producerFor(resource);
+        if (producer == null) {
+            return 0L;
+        }
+        return (long) workers(producer) * outputCapacityFor(resource);
+    }
+
+    private int outputCapacityFor(ResourceType resource) {
+        return switch (resource) {
+            case WHEAT -> whole(FARM_WHEAT_PER_WORKER_PER_DAY);
+            case IRON -> whole(MINE_IRON_PER_WORKER_PER_DAY);
+            case LOG -> whole(LUMBER_LOGS_PER_WORKER_PER_DAY);
+            case BREAD -> whole(BAKER_BREAD_PER_WORKER_PER_DAY);
+            case OAK_PLANKS -> whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY * PLANKS_PER_LOG);
+            case STICK -> whole(CARPENTER_ACTIONS_PER_WORKER_PER_DAY * STICKS_PER_ACTION);
+            case PICKAXE, AXE, HOE, SAW, HAMMER -> whole(SMITH_TOOLS_PER_WORKER_PER_DAY);
+        };
     }
 
     private void decrementSurplusGoals() {
